@@ -1,0 +1,27 @@
+dependencies:
+  cmd_system:
+    component_hash: null
+    source:
+      path: /Users/ben/.platformio/packages/framework-espidf/examples/system/console/advanced/components/cmd_system
+      type: local
+    version: '*'
+  espressif/esp-zboss-lib:
+    component_hash: 321883d142421f65009972408287441794250057668a11abbdfd8bec77c3309a
+    source:
+      service_url: https://api.components.espressif.com/
+      type: service
+    version: 1.6.4
+  espressif/esp-zigbee-lib:
+    component_hash: 4b023e171bd89d9f6ee2bd9fa63e569c9cfc7f6885d849b566b88cbfcbd37176
+    source:
+      service_url: https://api.components.espressif.com/
+      type: service
+    version: 1.6.4
+  idf:
+    component_hash: null
+    source:
+      type: idf
+    version: 5.4.0
+manifest_hash: fe613ecd38d7c8372dd9c27d5adc1588ebb6c5bb1d115745adb2f109e64e012d
+target: esp32c6
+version: 1.0.0
