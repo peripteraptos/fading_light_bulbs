@@ -119,7 +119,7 @@ static void light_fade_advanced_rtos_task(void *pvParameters)
     light_fade_t *light_fade = (light_fade_t *)pvParameters;
 
 
-    uint16_t step_ms = 150; // Convert steptime from the config to milliseconds
+    uint16_t step_ms = 250; // Convert steptime from the config to milliseconds
 
     double transition_s = light_fade->transition_time;
     double on_s = transition_s * light_fade->on_time;

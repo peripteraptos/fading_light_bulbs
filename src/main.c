@@ -9,6 +9,7 @@
 #include "light_control.h"
 #include "console_cmd.h"
 #include "calibration.h"
+#include "light_sensor.h"
 
 #include "linenoise/linenoise.h"
 
@@ -32,6 +33,11 @@ static void configure_gpio_pins(void)
     io_conf.pin_bit_mask = (1ULL << GPIO_NUM_5);
     gpio_config(&io_conf);
     gpio_set_level(GPIO_NUM_5, 0);
+
+
+    io_conf.pin_bit_mask = (1ULL << GPIO_NUM_1);
+    gpio_config(&io_conf);
+    gpio_set_level(GPIO_NUM_1, 0);
 }
 
 void app_main() {
@@ -73,6 +79,9 @@ void app_main() {
 
     // Send config over serial
     cmd_get_config(0, NULL);
+
+
+    start_light_sensor_task();
 
     // Done! The rest runs in tasks (ZB task, console REPL, etc.).
 }

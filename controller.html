@@ -63,7 +63,7 @@
       const connectButton = document.getElementById("connectButton");
       const saveButton = document.getElementById("saveButton");
       const debugButton = document.getElementById("debugButton");
-      const debugOffButton= document.getElementById("debugOffButton");
+      const debugOffButton = document.getElementById("debugOffButton");
       const reloadButton = document.getElementById("reloadButton");
       const resetButton = document.getElementById("resetButton");
 
@@ -73,6 +73,7 @@
 
       const lamp1Data = [];
       const lamp2Data = [];
+      const sensorData = [];
 
       const faderConfigs = [
         { id: "level_min", label: "Level Min:", min: 0, max: 254, value: 0 },
@@ -134,7 +135,7 @@
           id: "smooth",
           label: "Smooth:",
           min: 0,
-          max:1,
+          max: 1,
           value: 0,
           step: 0.01,
         },
@@ -185,14 +186,13 @@
         await sendSerialLine("save_light_config");
       });
 
-      debugButton.addEventListener("click",async () => {
+      debugButton.addEventListener("click", async () => {
         sendSerialLine("log_level * debug");
       });
 
       debugOffButton.addEventListener("click", () => {
         sendSerialLine("log_level * info");
       });
-
 
       reloadButton.addEventListener("click", async () => {
         await sendSerialLine("reload_light_config");
@@ -267,20 +267,27 @@
                     appendToConsole(`Malformed VALUE command: ${line}\n`);
                   }
                 } else if (line.includes("LIGHT_CONTROL: Setting")) {
-                  const parts = line.match(/Lamp(\d+) to (\d+)/);
+                  const parts = line.match(/Lamp(\d+) to (\d+) within (\d+)ms/);
                   if (parts) {
                     const lampNumber = parts[1];
                     const lampValue = parseInt(parts[2]);
-                    const now = Date.now();
+                    const additionalMilliseconds = parseInt(parts[3]);
+                    const now = Date.now() + additionalMilliseconds;
                     if (lampNumber === "1") {
                       lamp1Data.push({ time: now, value: lampValue });
                     } else if (lampNumber === "2") {
                       lamp2Data.push({ time: now, value: lampValue });
                     }
-                    if (lamp1Data.length > 100) lamp1Data.shift();
-                    if (lamp2Data.length > 100) lamp2Data.shift();
+                    if (lamp1Data.length > 200) lamp1Data.shift();
+                    if (lamp2Data.length > 200) lamp2Data.shift();
                     drawGraph();
                   }
+                } else if (line.includes("LIGHT_SENSOR: Value:")) {
+                  const value = parseInt(line.match(/Value: (\d+)/)[1]);
+                  const now = Date.now();
+                  sensorData.push({ time: now, value });
+                  if (sensorData.length > 400) sensorData.shift();
+                  drawGraph();
                 } else {
                   appendToConsole(`${line}\n`);
                 }
@@ -305,7 +312,7 @@
         };
       }
 
-      const sendSerialLine = debounce(async function(line) {
+      const sendSerialLine = debounce(async function (line) {
         if (!outputStream) {
           return;
         }
@@ -313,8 +320,7 @@
         const writer = outputStream.getWriter();
         await writer.write(data);
         writer.releaseLock();
-      }, 100); // Adjust the debounce time (in milliseconds) as needed
-
+      }, 100);
       function sendVariableUpdate(variableName, value) {
         const command = `set ${variableName} ${value}`;
         sendSerialLine(command);
@@ -329,27 +335,36 @@
         consoleElement.scrollTop = consoleElement.scrollHeight;
       }
 
-      function drawGraph() {
-        ctx.clearRect(0, 0, canvas.width, canvas.height);
-        ctx.beginPath();
-        ctx.strokeStyle = "red";
-        lamp1Data.forEach((data, index) => {
-          const x = (index / 100) * canvas.width;
-          const y = canvas.height - (data.value / 255) * canvas.height;
-          if (index === 0) ctx.moveTo(x, y);
-          else ctx.lineTo(x, y);
-        });
-        ctx.stroke();
 
-        ctx.beginPath();
-        ctx.strokeStyle = "blue";
-        lamp2Data.forEach((data, index) => {
-          const x = (index / 100) * canvas.width;
-          const y = canvas.height - (data.value / 255) * canvas.height;
-          if (index === 0) ctx.moveTo(x, y);
-          else ctx.lineTo(x, y);
-        });
-        ctx.stroke();
+      function drawGraph() {
+        // Define the time window for the graph (e.g., last 10 seconds)
+        const timeWindow = 10000; // 10 seconds
+        const now = Date.now();
+
+        ctx.clearRect(0, 0, canvas.width, canvas.height);
+
+        function plotData(dataArray, color, minValue, maxValue) {
+          ctx.beginPath();
+          ctx.strokeStyle = color;
+          dataArray.forEach((data, index) => {
+            const timeDiff = now - data.time;
+            const x = canvas.width - (timeDiff / timeWindow) * canvas.width;
+            const y = canvas.height - ((data.value-minValue) / (maxValue-minValue)) * canvas.height;
+
+            if (x >= 0) {
+              if (index === 0 || dataArray[index - 1].time <= now - timeWindow)
+                ctx.moveTo(x, y);
+              else ctx.lineTo(x, y);
+            }
+          });
+          ctx.stroke();
+        }
+
+        // Plot each dataset with its respective color and max value
+        plotData(lamp1Data, "red", 0, 255);
+        plotData(lamp2Data, "blue", 0,  255);
+ 
+        plotData(sensorData, "green",Math.min(...sensorData.map(s => s.value)),  Math.max(...sensorData.map(s => s.value)));
       }
     </script>
   </body>
