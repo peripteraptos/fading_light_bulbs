@@ -4,27 +4,39 @@
 #include "zigbee_main.h"
 
 /**
+ * @brief Enum to define dimming modes.
+ */
+typedef enum {
+    DIMMING_MODE_BASIC,
+    DIMMING_MODE_ADVANCED
+} dimming_mode_t;
+
+/**
  * @brief Basic structure to hold fade parameters for a single light.
  */
 typedef struct {
     esp_zb_ieee_addr_t address;
-    bool useGamma;
+    uint8_t id;
+    bool use_gamma;
+    bool use_lut;
+    bool with_onoff;
+    double offset;
     // We store references or copies of the config as needed.
     // ... If you want each device to have unique times, store them here.
     // Otherwise, you'll reference the global g_light_config.
     // Example:
-    // uint16_t onTime;
-    // uint16_t offTime;
-    // uint8_t levelMin;
-    // uint8_t levelMax;
+    uint16_t on_time;
+    uint16_t off_time;
+    uint8_t level_min;
+    uint8_t level_max;
+    uint16_t transition_time;
+    double gamma_value;
+    dimming_mode_t dimming_mode;
+    double smooth;
     // ...
     TaskHandle_t task_handle;
 } light_fade_t;
 
-/**
- * @brief Initialize the fade for each light, creating tasks, etc.
- * This might read from g_light_config globally or accept local parameters.
- */
 void lights_init(void);
 
 /**

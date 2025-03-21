@@ -1,0 +1,212 @@
+<!DOCTYPE html>
+<html lang="en">
+  <head>
+    <meta charset="UTF-8" />
+    <title>ESP WebSerial Control</title>
+    <style>
+      body {
+        font-family: sans-serif;
+        max-width: 600px;
+        margin: 20px auto;
+        padding: 0 20px;
+      }
+      #console {
+        width: 100%;
+        height: 200px;
+        margin-top: 10px;
+        border: 1px solid #ccc;
+        padding: 10px;
+        overflow-y: scroll;
+        white-space: pre-wrap;
+      }
+      .fader-container {
+        margin: 1em 0;
+      }
+      .fader-container label {
+        display: inline-block;
+        width: 100px;
+      }
+    </style>
+  </head>
+  <body>
+    <h1>ESP WebSerial Control</h1>
+
+    <button id="connectButton">Connect</button>
+
+    <div id="console"></div>
+    <div id="fadersContainer"></div>
+    <button id="debugButton">Debug</button>
+
+    <button id="saveButton">Save</button>
+
+    <script>
+      let port;
+      let reader;
+      let inputDone;
+      let outputDone;
+      let inputStream;
+      let outputStream;
+      const consoleElement = document.getElementById("console");
+      const connectButton = document.getElementById("connectButton");
+      const saveButton = document.getElementById("saveButton");
+      const debugButton = document.getElementById("debugButton");
+      const fadersContainer = document.getElementById("fadersContainer");
+
+      const faderConfigs = [
+        { id: "level_min", label: "Level Min:", min: 0, max: 254, value: 0 },
+        { id: "level_max", label: "Level Max:", min: 0, max: 254, value: 250 },
+        { id: "offset_1", label: "Offset 1:", min: 0, max: 1, value: 0, suffix: "% of cycle time" , step: 0.01},
+        { id: "offset_2", label: "Offset 2:", min: 0, max: 1, value: 50, suffix: "% of cycle time" , step: 0.01},
+        { id: "transition_time", label: "Transition Time:", min: 0, max: 50, value: 10, suffix: "seconds", step: 0.01 },
+        { id: "on_time", label: "On Time:", min: 0, max: 5, value: 0, suffix: "% of transition_time" , step: 0.01},
+        { id: "off_time", label: "Off Time:", min: 0, max: 5, value: 0, suffix: "% of transition_time", step: 0.01 },
+        { id: "gamma_value", label: "Gamma:", min: 0, max: 5, value: 2.4, step: 0.01 },
+      ];
+
+      function createFader(config) {
+        const container = document.createElement("div");
+        container.className = "fader-container";
+        const label = document.createElement("label");
+        label.setAttribute("for", `${config.id}Fader`);
+        label.textContent = config.label;
+        const fader = document.createElement("input");
+        fader.type = "range";
+        fader.min = config.min;
+        fader.max = config.max;
+        fader.value = config.value;
+        fader.id = `${config.id}Fader`;
+        fader.step = config.step;
+        const valueSpan = document.createElement("span");
+        valueSpan.id = `${config.id}Value`;
+        valueSpan.textContent = config.value;
+
+        fader.addEventListener("input", () => {
+          valueSpan.textContent = fader.value;
+          sendVariableUpdate(config.id, fader.value);
+        });
+
+        container.appendChild(label);
+        container.appendChild(fader);
+        container.appendChild(valueSpan);
+
+        if (config.suffix) {
+          const suffixSpan = document.createElement("span");
+          suffixSpan.textContent = ` ${config.suffix}`;
+          container.appendChild(suffixSpan);
+        }
+
+        fadersContainer.appendChild(container);
+      }
+
+      faderConfigs.forEach(createFader);
+      connectButton.addEventListener("click", async () => {
+        await connectToSerial();
+        await getVariables();
+      });
+
+      saveButton.addEventListener("click", () => {
+        sendSerialLine("SAVE");
+      });
+
+      debugButton.addEventListener("click", () => {
+        sendSerialLine("log_level * debug");
+      });
+
+      async function connectToSerial() {
+        try {
+          port = await navigator.serial.requestPort({
+            filters: [{ usbVendorId: 0x303a }, { usbVendorId: 0x1a86 }],
+          });
+          await port.open({ baudRate: 115200, buffersize: 100000 });
+
+          const textEncoder = new TextEncoderStream();
+          outputDone = textEncoder.readable.pipeTo(port.writable);
+          outputStream = textEncoder.writable;
+
+          const textDecoder = new TextDecoderStream();
+          inputDone = port.readable.pipeTo(textDecoder.writable);
+          inputStream = textDecoder.readable;
+
+          reader = inputStream.getReader();
+          readLoop();
+          appendToConsole("> Connected to serial port.\n");
+        } catch (e) {
+          appendToConsole(`Error: ${e}\n`);
+        }
+      }
+
+      async function readLoop() {
+        let buffer = "";
+
+        while (true) {
+          try {
+            const { value, done } = await reader.read();
+
+            if (done) {
+              reader.releaseLock();
+              break;
+            }
+            if (value) {
+              buffer += value;
+
+              let newlineIndex;
+              while ((newlineIndex = buffer.indexOf("\n")) !== -1) {
+                const line = buffer.slice(0, newlineIndex);
+                buffer = buffer.slice(newlineIndex + 1);
+
+                if (line.startsWith("VALUE")) {
+                  const parts = line.split(" ");
+                  if (parts.length === 3) {
+                    const varName = parts[1];
+                    const varValue = parts[2];
+                    appendToConsole(`Received ${varName}: ${varValue}\n`);
+
+                    const varFader = document.getElementById(`${varName}Fader`);
+                    if (varFader) {
+                      varFader.value = parseInt(varValue);
+                    }
+                    const varSpan = document.getElementById(`${varName}Value`);
+                    if (varSpan) {
+                      varSpan.textContent = varValue;
+                    }
+                  } else {
+                    appendToConsole(`Malformed VALUE command: ${line}\n`);
+                  }
+                } else {
+                  appendToConsole(`${line}\n`);
+                }
+              }
+            }
+          } catch (error) {
+            appendToConsole(`Read error: ${error}\n`);
+            break;
+          }
+        }
+      }
+
+      async function sendSerialLine(line) {
+          if (!outputStream) {
+            return;
+          }
+          const data = line + "\n";
+          const writer = outputStream.getWriter();
+          await writer.write(data);
+          writer.releaseLock();
+      }
+
+      function sendVariableUpdate(variableName, value) {
+        const command = `set ${variableName} ${value}`;
+        sendSerialLine(command);
+      }
+
+      async function getVariables() {
+        sendSerialLine("get");
+      }
+
+      function appendToConsole(text) {
+        consoleElement.textContent += text;
+        consoleElement.scrollTop = consoleElement.scrollHeight;
+      }
+    </script>
+  </body>
+</html>

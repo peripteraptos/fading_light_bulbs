@@ -15,14 +15,17 @@ static const char *TAG = "CONSOLE_CMD";
 static int cmd_get_config(int argc, char **argv)
 {
     printf("Current light configuration:\n");
-    printf("VALUE offset_1 %u\n", g_light_config.offset1);
-    printf("VALUE offset_2 %u\n", g_light_config.offset2);
-    printf("VALUE level_min %u\n", g_light_config.levelMin);
-    printf("VALUE level_max %u\n", g_light_config.levelMax);
-    printf("VALUE on_time %u\n", g_light_config.onTime);
-    printf("VALUE off_time %u\n", g_light_config.offTime);
-    printf("VALUE transition_time %u\n", g_light_config.transitionTime);
-    printf("VALUE gamma %.2f\n", g_light_config.gammaVal * 100);
+    printf("VALUE offset_1 %.2f\n", g_light_config.offset_1);
+    printf("VALUE offset_2 %.2f\n", g_light_config.offset_2);
+    printf("VALUE level_min %u\n", g_light_config.level_min);
+    printf("VALUE level_max %u\n", g_light_config.level_max);
+    printf("VALUE on_time %.2f\n", g_light_config.on_time);
+    printf("VALUE off_time %.2f\n", g_light_config.off_time);
+    printf("VALUE transition_time %.2f\n", g_light_config.transition_time);
+    printf("VALUE dimming_mode %u\n", g_light_config.dimming_mode);
+    printf("VALUE gamma_value %.2f\n", g_light_config.gamma_value);
+    printf("VALUE use_gamma %u\n", g_light_config.use_gamma);
+    printf("VALUE use_lut %u\n", g_light_config.use_lut);
     return 0;
 }
 
@@ -36,22 +39,24 @@ static int cmd_set_config(int argc, char **argv)
     const char *param = argv[1];
     double value = atof(argv[2]);
 
-    if (strcmp(param, "offset1") == 0) {
-        g_light_config.offset1 = (uint16_t)value;
-    } else if (strcmp(param, "offset2") == 0) {
-        g_light_config.offset2 = (uint16_t)value;
-    } else if (strcmp(param, "levelMin") == 0) {
-        g_light_config.levelMin = (uint8_t)value;
-    } else if (strcmp(param, "levelMax") == 0) {
-        g_light_config.levelMax = (uint8_t)value;
-    } else if (strcmp(param, "onTime") == 0) {
-        g_light_config.onTime = (uint16_t)value;
-    } else if (strcmp(param, "offTime") == 0) {
-        g_light_config.offTime = (uint16_t)value;
-    } else if (strcmp(param, "transitionTime") == 0) {
-        g_light_config.transitionTime = (uint16_t)value;
-    } else if (strcmp(param, "gamma") == 0) {
-        g_light_config.gammaVal = value;
+    if (strcmp(param, "offset_1") == 0) {
+        g_light_config.offset_1 = (uint16_t)value;
+    } else if (strcmp(param, "offset_2") == 0) {
+        g_light_config.offset_2 = (uint16_t)value;
+    } else if (strcmp(param, "level_min") == 0) {
+        g_light_config.level_min = (uint8_t)value;
+    } else if (strcmp(param, "level_max") == 0) {
+        g_light_config.level_max = (uint8_t)value;
+    } else if (strcmp(param, "on_time") == 0) {
+        g_light_config.on_time = (uint16_t)value;
+    } else if (strcmp(param, "off_time") == 0) {
+        g_light_config.off_time = (uint16_t)value;
+    } else if (strcmp(param, "transition_time") == 0) {
+        g_light_config.transition_time = (uint16_t)value;
+    } else if (strcmp(param, "gamma_value") == 0) {
+        g_light_config.gamma_value = value;
+    } else if (strcmp(param, "dimming_mode") == 0) {
+        g_light_config.dimming_mode = (uint8_t)value;
     } else {
         ESP_LOGW(TAG, "Unknown parameter: %s", param);
         return 1;
@@ -60,7 +65,7 @@ static int cmd_set_config(int argc, char **argv)
     ESP_LOGI(TAG, "Updated %s to %f", param, value);
 
     // Re-initialize the lights to apply new settings
-    // lights_init();
+    lights_init();
     return 0;
 }
 

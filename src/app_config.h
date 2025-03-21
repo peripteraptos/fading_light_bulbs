@@ -1,27 +1,26 @@
 #pragma once
-
+#include <stdbool.h>
 #include <stdint.h>
+#include <light_control.h>
 
-typedef enum {
-    DIMMING_MODE_LINEAR,
-    DIMMING_MODE_EXPONENTIAL,
-    DIMMING_MODE_LOGARITHMIC
-} dimmingMode_t;
 
 /**
  * @brief Structure to hold all “light” configuration parameters.
  * You can expand or rename these fields as needed.
  */
 typedef struct {
-    uint16_t offset1;
-    uint16_t offset2;
-    uint8_t  levelMin;
-    uint8_t  levelMax;
-    uint16_t onTime;          // in 100ms units, or however you prefer
-    uint16_t offTime;         // in 100ms units
-    uint16_t transitionTime;  // in 100ms units
-    dimmingMode_t dimmingMode;
-    double   gammaVal;
+    double offset_1;
+    double offset_2;
+    uint8_t level_min;
+    uint8_t level_max;
+    double on_time;             // in 100ms units, or however you prefer
+    double off_time;            // in 100ms units
+    double transition_time;     // in 100ms units
+    dimming_mode_t dimming_mode;
+    bool use_gamma;
+    bool use_lut;
+    double gamma_value;
+    double gamma_lookup_table[256];
 } light_config_t;
 
 /**
