@@ -118,17 +118,15 @@ static void light_fade_advanced_rtos_task(void *pvParameters)
 {
     light_fade_t *light_fade = (light_fade_t *)pvParameters;
 
-    double t = 0;
+
     uint16_t step_ms = 150; // Convert steptime from the config to milliseconds
 
     double transition_s = light_fade->transition_time;
     double on_s = transition_s * light_fade->on_time;
     double off_s = transition_s * light_fade->off_time;
     double cycle_s = (2 * transition_s) + on_s + off_s;
-    double offset_ms = cycle_s * light_fade->offset * 1000;
-
-    // If you want each lamp to start at a different offset:
-    vTaskDelay(offset_ms / portTICK_PERIOD_MS);
+    double offset_s = cycle_s * light_fade->offset;
+    double t = offset_s;
 
     while (1)
     {
@@ -250,7 +248,7 @@ void lights_init(void)
     lamp1_fade.off_time = g_light_config.off_time;
     lamp1_fade.offset = g_light_config.offset_1;
     lamp1_fade.dimming_mode = g_light_config.dimming_mode;
-    lamp1_fade.smooth = 0;
+    lamp1_fade.smooth = g_light_config.smooth;
     lamp1_fade.with_onoff = 0;
     lamp1_fade.level_min = g_light_config.level_min;
     lamp1_fade.level_max = g_light_config.level_max;
@@ -273,16 +271,16 @@ void lights_init(void)
     // Start tasks
     xTaskCreate(light_fade_rtos_task,
                 "lamp1_fade_task",
-                4096,
+                2048,
                 &lamp1_fade,
-                5,
+                4,
                 &lamp1_fade.task_handle);
 
     xTaskCreate(light_fade_rtos_task,
                 "lamp2_fade_task",
-                4096,
+                2048,
                 &lamp2_fade,
-                5,
+                4,
                 &lamp2_fade.task_handle);
 }
 

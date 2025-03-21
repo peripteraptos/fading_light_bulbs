@@ -19,6 +19,13 @@
         overflow-y: scroll;
         white-space: pre-wrap;
       }
+      #canvasContainer {
+        width: 100%;
+        height: 300px;
+        border: 1px solid #ccc;
+        margin-top: 20px;
+        position: relative;
+      }
       .fader-container {
         margin: 1em 0;
       }
@@ -35,9 +42,15 @@
 
     <div id="console"></div>
     <div id="fadersContainer"></div>
-    <button id="debugButton">Debug</button>
-
+    <button id="debugButton">Debug on</button>
+    <button id="debugOffButton">Debug off</button>
     <button id="saveButton">Save</button>
+    <button id="reloadButton">Discard changes (reload saved settings)</button>
+    <button id="resetButton">Reset to factory defaults</button>
+
+    <div id="canvasContainer">
+      <canvas id="graphCanvas" width="600" height="300"></canvas>
+    </div>
 
     <script>
       let port;
@@ -50,17 +63,81 @@
       const connectButton = document.getElementById("connectButton");
       const saveButton = document.getElementById("saveButton");
       const debugButton = document.getElementById("debugButton");
+      const debugOffButton= document.getElementById("debugOffButton");
+      const reloadButton = document.getElementById("reloadButton");
+      const resetButton = document.getElementById("resetButton");
+
       const fadersContainer = document.getElementById("fadersContainer");
+      const canvas = document.getElementById("graphCanvas");
+      const ctx = canvas.getContext("2d");
+
+      const lamp1Data = [];
+      const lamp2Data = [];
 
       const faderConfigs = [
         { id: "level_min", label: "Level Min:", min: 0, max: 254, value: 0 },
         { id: "level_max", label: "Level Max:", min: 0, max: 254, value: 250 },
-        { id: "offset_1", label: "Offset 1:", min: 0, max: 1, value: 0, suffix: "% of cycle time" , step: 0.01},
-        { id: "offset_2", label: "Offset 2:", min: 0, max: 1, value: 50, suffix: "% of cycle time" , step: 0.01},
-        { id: "transition_time", label: "Transition Time:", min: 0, max: 50, value: 10, suffix: "seconds", step: 0.01 },
-        { id: "on_time", label: "On Time:", min: 0, max: 5, value: 0, suffix: "% of transition_time" , step: 0.01},
-        { id: "off_time", label: "Off Time:", min: 0, max: 5, value: 0, suffix: "% of transition_time", step: 0.01 },
-        { id: "gamma_value", label: "Gamma:", min: 0, max: 5, value: 2.4, step: 0.01 },
+        {
+          id: "offset_1",
+          label: "Offset 1:",
+          min: 0,
+          max: 1,
+          value: 0,
+          suffix: "% of cycle time",
+          step: 0.01,
+        },
+        {
+          id: "offset_2",
+          label: "Offset 2:",
+          min: 0,
+          max: 1,
+          value: 50,
+          suffix: "% of cycle time",
+          step: 0.01,
+        },
+        {
+          id: "transition_time",
+          label: "Transition Time:",
+          min: 0,
+          max: 50,
+          value: 10,
+          suffix: "seconds",
+          step: 0.01,
+        },
+        {
+          id: "on_time",
+          label: "On Time:",
+          min: 0,
+          max: 5,
+          value: 0,
+          suffix: "% of transition_time",
+          step: 0.01,
+        },
+        {
+          id: "off_time",
+          label: "Off Time:",
+          min: 0,
+          max: 5,
+          value: 0,
+          suffix: "% of transition_time",
+          step: 0.01,
+        },
+        {
+          id: "gamma_value",
+          label: "Gamma:",
+          min: 0,
+          max: 5,
+          value: 2.4,
+          step: 0.01,
+        },
+        {
+          id: "smooth",
+          label: "Smooth:",
+          min: 0,
+          max:1,
+          value: 0,
+          step: 0.01,
+        },
       ];
 
       function createFader(config) {
@@ -104,12 +181,29 @@
         await getVariables();
       });
 
-      saveButton.addEventListener("click", () => {
-        sendSerialLine("SAVE");
+      saveButton.addEventListener("click", async () => {
+        await sendSerialLine("save_light_config");
       });
 
-      debugButton.addEventListener("click", () => {
+      debugButton.addEventListener("click",async () => {
         sendSerialLine("log_level * debug");
+      });
+
+      debugOffButton.addEventListener("click", () => {
+        sendSerialLine("log_level * info");
+      });
+
+
+      reloadButton.addEventListener("click", async () => {
+        await sendSerialLine("reload_light_config");
+        await getVariables();
+        appendToConsole("Reloaded saved settings.\n");
+      });
+
+      resetButton.addEventListener("click", async () => {
+        await sendSerialLine("reset_light_config");
+        await getVariables();
+        appendToConsole("Factory defaults have been reset.\n");
       });
 
       async function connectToSerial() {
@@ -172,6 +266,21 @@
                   } else {
                     appendToConsole(`Malformed VALUE command: ${line}\n`);
                   }
+                } else if (line.includes("LIGHT_CONTROL: Setting")) {
+                  const parts = line.match(/Lamp(\d+) to (\d+)/);
+                  if (parts) {
+                    const lampNumber = parts[1];
+                    const lampValue = parseInt(parts[2]);
+                    const now = Date.now();
+                    if (lampNumber === "1") {
+                      lamp1Data.push({ time: now, value: lampValue });
+                    } else if (lampNumber === "2") {
+                      lamp2Data.push({ time: now, value: lampValue });
+                    }
+                    if (lamp1Data.length > 100) lamp1Data.shift();
+                    if (lamp2Data.length > 100) lamp2Data.shift();
+                    drawGraph();
+                  }
                 } else {
                   appendToConsole(`${line}\n`);
                 }
@@ -179,20 +288,32 @@
             }
           } catch (error) {
             appendToConsole(`Read error: ${error}\n`);
-            break;
           }
         }
       }
 
-      async function sendSerialLine(line) {
-          if (!outputStream) {
-            return;
-          }
-          const data = line + "\n";
-          const writer = outputStream.getWriter();
-          await writer.write(data);
-          writer.releaseLock();
+      function debounce(func, wait) {
+        let timeout;
+        return function executedFunction(...args) {
+          const later = () => {
+            clearTimeout(timeout);
+            func(...args);
+          };
+
+          clearTimeout(timeout);
+          timeout = setTimeout(later, wait);
+        };
       }
+
+      const sendSerialLine = debounce(async function(line) {
+        if (!outputStream) {
+          return;
+        }
+        const data = line + "\n";
+        const writer = outputStream.getWriter();
+        await writer.write(data);
+        writer.releaseLock();
+      }, 100); // Adjust the debounce time (in milliseconds) as needed
 
       function sendVariableUpdate(variableName, value) {
         const command = `set ${variableName} ${value}`;
@@ -206,6 +327,29 @@
       function appendToConsole(text) {
         consoleElement.textContent += text;
         consoleElement.scrollTop = consoleElement.scrollHeight;
+      }
+
+      function drawGraph() {
+        ctx.clearRect(0, 0, canvas.width, canvas.height);
+        ctx.beginPath();
+        ctx.strokeStyle = "red";
+        lamp1Data.forEach((data, index) => {
+          const x = (index / 100) * canvas.width;
+          const y = canvas.height - (data.value / 255) * canvas.height;
+          if (index === 0) ctx.moveTo(x, y);
+          else ctx.lineTo(x, y);
+        });
+        ctx.stroke();
+
+        ctx.beginPath();
+        ctx.strokeStyle = "blue";
+        lamp2Data.forEach((data, index) => {
+          const x = (index / 100) * canvas.width;
+          const y = canvas.height - (data.value / 255) * canvas.height;
+          if (index === 0) ctx.moveTo(x, y);
+          else ctx.lineTo(x, y);
+        });
+        ctx.stroke();
       }
     </script>
   </body>

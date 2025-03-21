@@ -10,6 +10,7 @@
 #include "console_cmd.h"
 #include "calibration.h"
 
+#include "linenoise/linenoise.h"
 
 static const char *TAG = "APP_MAIN";
 
@@ -40,6 +41,8 @@ void app_main() {
     // Initialize NVS
     ESP_ERROR_CHECK(nvs_flash_init());
 
+    load_light_config_from_nvs();
+
     // Initialize console REPL (UART or USB-JTAG, etc.)
     esp_console_repl_config_t repl_config = ESP_CONSOLE_REPL_CONFIG_DEFAULT();
     repl_config.prompt = PROMPT_STR ">";
@@ -48,6 +51,8 @@ void app_main() {
     esp_console_dev_uart_config_t uart_config = ESP_CONSOLE_DEV_UART_CONFIG_DEFAULT();
     esp_console_repl_t *repl = NULL;
     ESP_ERROR_CHECK(esp_console_new_repl_uart(&uart_config, &repl_config, &repl));
+
+    linenoiseSetDumbMode(1);
 
     // Register console commands
     esp_console_register_help_command();
@@ -64,6 +69,10 @@ void app_main() {
 
     // Optionally, you can start the default fade tasks right away:
     lights_init();
+
+
+    // Send config over serial
+    cmd_get_config(0, NULL);
 
     // Done! The rest runs in tasks (ZB task, console REPL, etc.).
 }

@@ -21,19 +21,14 @@ typedef struct {
     bool use_lut;
     bool with_onoff;
     double offset;
-    // We store references or copies of the config as needed.
-    // ... If you want each device to have unique times, store them here.
-    // Otherwise, you'll reference the global g_light_config.
-    // Example:
-    uint16_t on_time;
-    uint16_t off_time;
+    double on_time;
+    double off_time;
     uint8_t level_min;
     uint8_t level_max;
-    uint16_t transition_time;
+    double transition_time;
     double gamma_value;
     dimming_mode_t dimming_mode;
     double smooth;
-    // ...
     TaskHandle_t task_handle;
 } light_fade_t;
 

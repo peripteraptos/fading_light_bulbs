@@ -12,7 +12,7 @@
 
 static const char *TAG = "CONSOLE_CMD";
 
-static int cmd_get_config(int argc, char **argv)
+ int cmd_get_config(int argc, char **argv)
 {
     printf("Current light configuration:\n");
     printf("VALUE offset_1 %.2f\n", g_light_config.offset_1);
@@ -24,6 +24,7 @@ static int cmd_get_config(int argc, char **argv)
     printf("VALUE transition_time %.2f\n", g_light_config.transition_time);
     printf("VALUE dimming_mode %u\n", g_light_config.dimming_mode);
     printf("VALUE gamma_value %.2f\n", g_light_config.gamma_value);
+    printf("VALUE smooth %.2f\n", g_light_config.smooth);
     printf("VALUE use_gamma %u\n", g_light_config.use_gamma);
     printf("VALUE use_lut %u\n", g_light_config.use_lut);
     return 0;
@@ -40,21 +41,23 @@ static int cmd_set_config(int argc, char **argv)
     double value = atof(argv[2]);
 
     if (strcmp(param, "offset_1") == 0) {
-        g_light_config.offset_1 = (uint16_t)value;
+        g_light_config.offset_1 = value;
     } else if (strcmp(param, "offset_2") == 0) {
-        g_light_config.offset_2 = (uint16_t)value;
+        g_light_config.offset_2 = value;
     } else if (strcmp(param, "level_min") == 0) {
         g_light_config.level_min = (uint8_t)value;
     } else if (strcmp(param, "level_max") == 0) {
         g_light_config.level_max = (uint8_t)value;
     } else if (strcmp(param, "on_time") == 0) {
-        g_light_config.on_time = (uint16_t)value;
+        g_light_config.on_time = value;
     } else if (strcmp(param, "off_time") == 0) {
-        g_light_config.off_time = (uint16_t)value;
+        g_light_config.off_time = value;
     } else if (strcmp(param, "transition_time") == 0) {
-        g_light_config.transition_time = (uint16_t)value;
+        g_light_config.transition_time = value;
     } else if (strcmp(param, "gamma_value") == 0) {
         g_light_config.gamma_value = value;
+    }else if (strcmp(param, "smooth") == 0) {
+        g_light_config.smooth = value;
     } else if (strcmp(param, "dimming_mode") == 0) {
         g_light_config.dimming_mode = (uint8_t)value;
     } else {
@@ -76,6 +79,29 @@ static int cmd_start_calibration(int argc, char **argv)
     return 0;
 }
 
+static int cmd_save_config(int argc, char **argv)
+{
+    ESP_LOGI(TAG, "Saving current configuration to non-volatile storage...");
+    save_current_light_config_to_nvs();
+    return 0;
+}
+
+static int cmd_reset_config(int argc, char **argv)
+{
+    ESP_LOGI(TAG, "Resetting configuration to default values...");
+    reset_light_config_to_default();
+    lights_init(); // Re-initialize the lights with default settings
+    return 0;
+}
+
+
+static int cmd_reload_config(int argc, char **argv)
+{
+    ESP_LOGI(TAG, "Reloading configuration from non-volatile storage...");
+    load_light_config_from_nvs();
+    lights_init(); // Re-initialize the lights with reloaded settings
+    return 0;
+}
 void register_console_commands(void)
 {
     register_system();
@@ -106,4 +132,31 @@ void register_console_commands(void)
         .func = &cmd_start_calibration,
     };
     ESP_ERROR_CHECK(esp_console_cmd_register(&calib_cmd));
+
+    // "save" command
+    const esp_console_cmd_t save_cmd = {
+        .command = "save_light_config",
+        .help = "Save current configuration to non-volatile storage",
+        .hint = NULL,
+        .func = &cmd_save_config,
+    };
+    ESP_ERROR_CHECK(esp_console_cmd_register(&save_cmd));
+
+    // "reset" command
+    const esp_console_cmd_t reset_cmd = {
+        .command = "reset_light_config",
+        .help = "Reset configuration to default values",
+        .hint = NULL,
+        .func = &cmd_reset_config,
+    };
+    ESP_ERROR_CHECK(esp_console_cmd_register(&reset_cmd));
+
+    // "reload" command
+    const esp_console_cmd_t reload_cmd = {
+        .command = "reload_light_config",
+        .help = "Reload configuration from non-volatile storage",
+        .hint = NULL,
+        .func = &cmd_reload_config,
+    };
+    ESP_ERROR_CHECK(esp_console_cmd_register(&reload_cmd));
 }
