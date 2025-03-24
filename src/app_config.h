@@ -19,15 +19,21 @@ typedef struct {
     double off_time;            // in 100ms units
     double transition_time;     // in 100ms units
     dimming_mode_t dimming_mode;
-    bool use_gamma;
-    bool use_lut;
-    double gamma_value;
-    double gamma_lookup_table[256];
+    dimming_strategy_t dimming_strategy;
+    gamma_mode_t gamma_mode;
+    double gamma_pow_value;
+    double gamma_pow_scale;
+    double gamma_pol_a;
+    double gamma_pol_b;
+    double gamma_pol_c;
     double smooth;
+
 } light_config_t;
 
+extern uint8_t g_gamma_lookup_table[256];
 extern light_config_t g_light_config;
 extern light_config_t g_light_config_default;
+extern esp_zb_ieee_addr_t lamp1_long_address, lamp2_long_address;
 
 
 #define NVS_NAMESPACE "storage"

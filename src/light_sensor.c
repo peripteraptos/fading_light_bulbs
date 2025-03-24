@@ -35,6 +35,13 @@
  
  static TaskHandle_t s_task_handle;
  static const char *TAG = "LIGHT_SENSOR";
+
+ long int current_value = 0;
+
+
+ long int get_current_value(void){
+    return current_value;
+ }
  
  static bool IRAM_ATTR s_conv_done_cb(adc_continuous_handle_t handle, const adc_continuous_evt_data_t *edata, void *user_data)
  {
@@ -130,6 +137,7 @@
                          /* Log average value every 100 readings */
                          if (count == 1024) {
                              uint32_t average = sum / 1024;
+                             current_value = average;
                              ESP_LOGI(TAG, "Value: %ld", average);
                              sum = 0;
                              count = 0;
@@ -155,6 +163,10 @@
 
  void start_light_sensor_task(void)
 {
+    if (s_task_handle != NULL){
+        vTaskDelete(s_task_handle);
+        s_task_handle = NULL;
+    }
     xTaskCreate(light_sensor_rtos_task, "light_sensor_rtos_task", 8168, NULL, 3, NULL);
 }
 

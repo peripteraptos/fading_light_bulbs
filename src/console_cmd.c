@@ -12,7 +12,7 @@
 
 static const char *TAG = "CONSOLE_CMD";
 
- int cmd_get_config(int argc, char **argv)
+int cmd_get_config(int argc, char **argv)
 {
     printf("Current light configuration:\n");
     printf("VALUE offset_1 %.2f\n", g_light_config.offset_1);
@@ -23,16 +23,21 @@ static const char *TAG = "CONSOLE_CMD";
     printf("VALUE off_time %.2f\n", g_light_config.off_time);
     printf("VALUE transition_time %.2f\n", g_light_config.transition_time);
     printf("VALUE dimming_mode %u\n", g_light_config.dimming_mode);
-    printf("VALUE gamma_value %.2f\n", g_light_config.gamma_value);
+    printf("VALUE dimming_strategy %u\n", g_light_config.dimming_strategy);
+    printf("VALUE gamma_pow_value %.4f\n", g_light_config.gamma_pow_value);
+    printf("VALUE gamma_pow_scale %.4f\n", g_light_config.gamma_pow_scale);
+    printf("VALUE gamma_pol_a %.4f\n", g_light_config.gamma_pol_a);
+    printf("VALUE gamma_pol_b %.4f\n", g_light_config.gamma_pol_b);
+    printf("VALUE gamma_pol_c %.4f\n", g_light_config.gamma_pol_c);
+    printf("VALUE gamma_mode %u\n", g_light_config.gamma_mode);
     printf("VALUE smooth %.2f\n", g_light_config.smooth);
-    printf("VALUE use_gamma %u\n", g_light_config.use_gamma);
-    printf("VALUE use_lut %u\n", g_light_config.use_lut);
     return 0;
 }
 
 static int cmd_set_config(int argc, char **argv)
 {
-    if (argc < 3) {
+    if (argc < 3)
+    {
         ESP_LOGW(TAG, "Usage: set <param> <value>");
         return 1;
     }
@@ -40,27 +45,72 @@ static int cmd_set_config(int argc, char **argv)
     const char *param = argv[1];
     double value = atof(argv[2]);
 
-    if (strcmp(param, "offset_1") == 0) {
+    if (strcmp(param, "offset_1") == 0)
+    {
         g_light_config.offset_1 = value;
-    } else if (strcmp(param, "offset_2") == 0) {
+    }
+    else if (strcmp(param, "offset_2") == 0)
+    {
         g_light_config.offset_2 = value;
-    } else if (strcmp(param, "level_min") == 0) {
+    }
+    else if (strcmp(param, "level_min") == 0)
+    {
         g_light_config.level_min = (uint8_t)value;
-    } else if (strcmp(param, "level_max") == 0) {
+    }
+    else if (strcmp(param, "level_max") == 0)
+    {
         g_light_config.level_max = (uint8_t)value;
-    } else if (strcmp(param, "on_time") == 0) {
+    }
+    else if (strcmp(param, "on_time") == 0)
+    {
         g_light_config.on_time = value;
-    } else if (strcmp(param, "off_time") == 0) {
+    }
+    else if (strcmp(param, "off_time") == 0)
+    {
         g_light_config.off_time = value;
-    } else if (strcmp(param, "transition_time") == 0) {
+    }
+    else if (strcmp(param, "transition_time") == 0)
+    {
         g_light_config.transition_time = value;
-    } else if (strcmp(param, "gamma_value") == 0) {
-        g_light_config.gamma_value = value;
-    }else if (strcmp(param, "smooth") == 0) {
+    }
+    else if (strcmp(param, "smooth") == 0)
+    {
         g_light_config.smooth = value;
-    } else if (strcmp(param, "dimming_mode") == 0) {
-        g_light_config.dimming_mode = (uint8_t)value;
-    } else {
+    }
+    else if (strcmp(param, "dimming_mode") == 0)
+    {
+        g_light_config.dimming_mode = (dimming_mode_t)value;
+    }
+    else if (strcmp(param, "gamma_pow_value") == 0)
+    {
+        g_light_config.gamma_pow_value = value;
+    }
+    else if (strcmp(param, "gamma_pow_scale") == 0)
+    {
+        g_light_config.gamma_pow_scale = value;
+    }
+    else if (strcmp(param, "gamma_pol_a") == 0)
+    {
+        g_light_config.gamma_pol_a = value;
+    }
+    else if (strcmp(param, "gamma_pol_b") == 0)
+    {
+        g_light_config.gamma_pol_b = value;
+    }
+    else if (strcmp(param, "gamma_pol_c") == 0)
+    {
+        g_light_config.gamma_pol_c = value;
+    }
+    else if (strcmp(param, "gamma_mode") == 0)
+    {
+        g_light_config.gamma_mode = (uint8_t)value;
+    }
+    else if (strcmp(param, "dimming_strategy") == 0)
+    {
+        g_light_config.dimming_strategy = (uint8_t)value;
+    }
+    else
+    {
         ESP_LOGW(TAG, "Unknown parameter: %s", param);
         return 1;
     }
@@ -75,7 +125,7 @@ static int cmd_set_config(int argc, char **argv)
 static int cmd_start_calibration(int argc, char **argv)
 {
     ESP_LOGI(TAG, "Starting calibration task...");
-    // start_calibration_task();
+    start_calibration();
     return 0;
 }
 
@@ -93,7 +143,6 @@ static int cmd_reset_config(int argc, char **argv)
     lights_init(); // Re-initialize the lights with default settings
     return 0;
 }
-
 
 static int cmd_reload_config(int argc, char **argv)
 {

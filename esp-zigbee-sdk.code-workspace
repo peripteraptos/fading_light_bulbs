@@ -1,0 +1,63 @@
+{
+	"folders": [
+		{
+			"path": "../../../../esp/esp-zigbee-sdk"
+		},
+		{
+			"name": "zivabulb2",
+			"path": "."
+		}
+	],
+	"settings": {
+		"files.associations": {
+			"esp_zb_switch.h": "c",
+			"esp_zigbee_ha_standard.h": "c",
+			"string.h": "c",
+			"esp_zigbee_type.h": "c",
+			"esp_zigbee_zgp.h": "c",
+			"esp_zigbee_all_device_types_app.h": "c",
+			"__bit_reference": "c",
+			"__node_handle": "c",
+			"bitset": "c",
+			"__memory": "c",
+			"limits": "c",
+			"optional": "c",
+			"ratio": "c",
+			"tuple": "c",
+			"vector": "c",
+			"esp_zigbee_gateway.h": "c",
+			"esp_rcp_update.h": "c",
+			"switch_driver.h": "c",
+			"fcntl.h": "c",
+			"locale": "c",
+			"__hash_table": "c",
+			"__split_buffer": "c",
+			"__tree": "c",
+			"array": "c",
+			"initializer_list": "c",
+			"map": "c",
+			"set": "c",
+			"string": "c",
+			"string_view": "c",
+			"unordered_map": "c",
+			"test_component1.h": "c",
+			"light_control.h": "c",
+			"zigbee_main.h": "c",
+			"memory": "c",
+			"app_config.h": "c",
+			"esp_zigbee_attribute.h": "c",
+			"calibration.h": "c",
+			"argtable3.h": "c",
+			"console_cmd.h": "c",
+			"esp_check.h": "c",
+			"cmd_system.h": "c",
+			"random": "c",
+			"linenoise.h": "c",
+			"light_sensor.h": "c",
+			"span": "c",
+			"math.h": "c",
+			"task.h": "c",
+			"chrono": "c"
+		}
+	}
+}
