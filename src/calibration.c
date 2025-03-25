@@ -30,274 +30,142 @@ long int get_max_sensor_reading()
     }
     return max;
 }
-void fitGammaPowerLawNormalized(
-    const float *x, // xScaled array in [0..1]
-    const float *y, // yScaled array in [0..1]
-    int n,
-    float *A,
-    float *gamma)
-{
-    double sumX = 0.0;
-    double sumY = 0.0;
-    double sumXX = 0.0;
-    double sumXY = 0.0;
-    int validCount = 0;
 
-    for (int i = 0; i < n; i++)
+
+
+float get_stable_sensor_reading(int maxTries, int sampleCount, float maxStdDevAllowed)
+{
+    // We'll take sampleCount readings, compute mean & stdev.
+    // If stdev is too large, we can optionally retry (up to maxTries times).
+
+    float mean = 0.0f;
+    float stdDev = 0.0f;
+
+    for (int attempt = 0; attempt < maxTries; attempt++)
     {
-        // Must skip x=0 or y=0 if taking logs:
-        // (Or clamp them to a small positive value like 1e-6)
-        if (x[i] > 1e-6f && y[i] > 1e-6f)
+        // Gather samples
+        float sum = 0.0f;
+        float sumSq = 0.0f;
+        int validSamples = 0;
+        const int delayMs = 10; // time between samples (adjust as needed)
+
+        // Collect data
+        for (int i = 0; i < sampleCount; i++)
         {
-            double lx = log(x[i]);
-            double ly = log(y[i]);
-            sumX += lx;
-            sumY += ly;
-            sumXX += (lx * lx);
-            sumXY += (lx * ly);
-            validCount++;
+            float val = (float)get_current_value();
+            sum += val;
+            sumSq += (val * val);
+            validSamples++;
+
+            // small delay to let the ADC settle
+            vTaskDelay(pdMS_TO_TICKS(delayMs));
+        }
+
+        // Compute mean
+        mean = sum / (float)validSamples;
+
+        // Compute variance = (sum(x^2) / n) - mean^2
+        float variance = (sumSq / (float)validSamples) - (mean * mean);
+        stdDev = sqrtf(variance);
+
+        if (stdDev <= maxStdDevAllowed)
+        {
+            // Good enough, break out
+            break;
+        }
+        else
+        {
+            // Possibly log a warning or debug message
+            printf("Attempt %d: stdev=%.2f above threshold=%.2f, retrying...\n",
+                   attempt, stdDev, maxStdDevAllowed);
+            // next iteration will try again
         }
     }
 
-    if (validCount < 2)
-    {
-        // Not enough valid points
-        *A = 0.0f;
-        *gamma = 1.0f; // fallback
-        return;
-    }
-
-    double denom = (validCount * sumXX - sumX * sumX);
-    if (fabs(denom) < 1e-12)
-    {
-        *A = 0.0f;
-        *gamma = 1.0f;
-        return;
-    }
-
-    double b = (validCount * sumXY - sumX * sumY) / denom; // b = gamma
-    double a = (sumY - b * sumX) / validCount;             // a = ln(A)
-
-    *A = (float)exp(a);
-    *gamma = (float)b;
+    // Optionally, if still above threshold after all tries, you could do fallback:
+    // e.g. accept the last average or return some error code.
+    // We'll just return the last average here.
+    return mean;
 }
 
-// We'll do a direct solution of the 3x3 system for a quadratic fit:
-// y = a0 + a1*x + a2*x^2
 
-typedef struct
+static float yMeasured[256];     // raw measured brightness in [some range]
+static float yScaled[256];       // normalized to [0..1]
+               
+
+static float buildInverseTable(void)
 {
-    float a0;
-    float a1;
-    float a2;
-} Poly2Coeffs;
-
-void fitQuadratic(const float *x, const float *y, int n, Poly2Coeffs *out)
-{
-    double Sx = 0.0;    // sum(x)
-    double Sy = 0.0;    // sum(y)
-    double Sxx = 0.0;   // sum(x^2)
-    double Sxy = 0.0;   // sum(x*y)
-    double Sxxx = 0.0;  // sum(x^3)
-    double Sxxy = 0.0;  // sum(x^2*y)
-    double Sxxxx = 0.0; // sum(x^4)
-
-    int validCount = 0;
-
-    for (int i = 0; i < n; i++)
-    {
-        double xi = x[i];
-        double yi = y[i];
-        Sx += xi;
-        Sy += yi;
-        double xx = xi * xi;
-        Sxx += xx;
-        Sxy += (xi * yi);
-        double xxx = xx * xi;
-        Sxxx += xxx;
-        Sxxy += (xx * yi);
-        Sxxxx += (xx * xx);
-        validCount++;
-    }
-    // We'll call that n2 to avoid confusion
-    double n2 = (double)validCount;
-
-    // The normal equations matrix is:
-    //
-    // [ n2    Sx     Sxx  ] [ a0 ]   [ Sy   ]
-    // [ Sx    Sxx    Sxxx ] [ a1 ] = [ Sxy  ]
-    // [ Sxx   Sxxx   Sxxxx] [ a2 ]   [ Sxxy ]
-    //
-    // We'll solve for a0, a1, a2.
-
-    // Let's set up that matrix:
-    double M[3][3] = {
-        {n2, Sx, Sxx},
-        {Sx, Sxx, Sxxx},
-        {Sxx, Sxxx, Sxxxx}};
-    double RHS[3] = {Sy, Sxy, Sxxy};
-
-    // Now solve the 3x3 system M * A = RHS (where A = [a0, a1, a2]).
-    // You can write or use a small function to do a 3x3 solve via e.g. Gaussian elimination.
-
-    // A quick-and-dirty approach (not super robust for degenerate data):
-    // We'll do a simple partial pivot approach. For production code,
-    // ensure you handle edge cases carefully.
-
-    // Convert to float in the end
-    double a0 = 0, a1 = 0, a2 = 0;
-
-    // We'll implement a small inline for 3x3 pivot/solve:
-    {
-        // Forward elimination
-        for (int k = 0; k < 3; k++)
-        {
-            // Pivot selection (find row with max M[row][k])
-            double maxVal = fabs(M[k][k]);
-            int pivot = k;
-            for (int r = k + 1; r < 3; r++)
-            {
-                double val = fabs(M[r][k]);
-                if (val > maxVal)
-                {
-                    maxVal = val;
-                    pivot = r;
-                }
-            }
-            // Swap pivot row if needed
-            if (pivot != k)
-            {
-                for (int c = 0; c < 3; c++)
-                {
-                    double tmp = M[k][c];
-                    M[k][c] = M[pivot][c];
-                    M[pivot][c] = tmp;
-                }
-                double tmpR = RHS[k];
-                RHS[k] = RHS[pivot];
-                RHS[pivot] = tmpR;
-            }
-            // Eliminate below pivot
-            for (int r = k + 1; r < 3; r++)
-            {
-                double factor = M[r][k] / M[k][k];
-                for (int c = k; c < 3; c++)
-                {
-                    M[r][c] -= factor * M[k][c];
-                }
-                RHS[r] -= factor * RHS[k];
-            }
-        }
-        // Back substitution
-        for (int i = 2; i >= 0; i--)
-        {
-            double sumv = RHS[i];
-            for (int c = i + 1; c < 3; c++)
-            {
-                sumv -= M[i][c] * RHS[c];
-            }
-            RHS[i] = sumv / M[i][i];
-        }
-        // Now RHS[0..2] holds a0, a1, a2
-        a0 = RHS[0];
-        a1 = RHS[1];
-        a2 = RHS[2];
-    }
-
-    out->a0 = (float)a0;
-    out->a1 = (float)a1;
-    out->a2 = (float)a2;
-}
-
-int main(void)
-{
-    // Example data:
-    static float xData[256], yData[256];
+    // 1) find min & max among yMeasured
+    float minVal = 1e30f, maxVal = -1e30f;
     for (int i = 0; i < 256; i++)
     {
-        xData[i] = (float)i;
-        // Let the real function be y=5 + 2*x + 0.01*x^2, plus some noise
-        float trueVal = 5.0f + 2.0f * i + 0.01f * (i * i);
-        // Add small noise if desired
-        yData[i] = trueVal;
+        if (yMeasured[i] < minVal) minVal = yMeasured[i];
+        if (yMeasured[i] > maxVal) maxVal = yMeasured[i];
+    }
+    float range = maxVal - minVal;
+    if (range < 1e-9f) range = 1.0f; // fallback if all data are identical
+
+    // 2) build normalized yScaled
+    for (int i = 0; i < 256; i++)
+    {
+        yScaled[i] = (yMeasured[i] - minVal) / range; // in [0..1]
     }
 
-    Poly2Coeffs coeffs;
-    fitQuadratic(xData, yData, 256, &coeffs);
-
-    printf("Fitted polynomial: y = %.4f + %.4f*x + %.4f*x^2\n",
-           coeffs.a0, coeffs.a1, coeffs.a2);
-
-    // Example usage:
-    float testX = 100.0f;
-    float predictedY = coeffs.a0 + coeffs.a1 * testX + coeffs.a2 * (testX * testX);
-    printf("Predicted Y for x=100 is %f\n", predictedY);
-
-    return 0;
+    // 3) build inverse LUT
+    // g_inverseLUT[dIndex] = best input i for desired brightness = dIndex/255
+    for (int dIndex = 0; dIndex < 256; dIndex++)
+    {
+        float desired = (float)dIndex / 255.0f;
+        float bestDiff = 999999.0f;
+        int bestI = 0;
+        for (int i = 0; i < 256; i++)
+        {
+            float diff = fabsf(yScaled[i] - desired);
+            if (diff < bestDiff)
+            {
+                bestDiff = diff;
+                bestI = i;
+            }
+        }
+        g_inverseLUT[dIndex] = (uint8_t)bestI;
+    }
+    return minVal; // e.g. might want to return something else, or nothing
 }
 
 void start_calibration()
 {
-
-    // start_light_sensor_task();
-    long int min_value, max_value;
-    ESP_LOGI(TAG, "Stopping Fade...");
+    ESP_LOGI(TAG, "Starting calibration...");
+     
     lights_stop();
+    //Turn lamp2 off first
     move_to_level_with_onoff(0, 0, lamp2_long_address);
-    ESP_LOGI(TAG, "Moving to full brightness");
     move_to_level_with_onoff(10, 0, lamp1_long_address);
-    vTaskDelay(pdMS_TO_TICKS(100));
+
     move_to_level(0, 0, lamp1_long_address);
+    vTaskDelay(pdMS_TO_TICKS(500));
 
-    // Move to max brightness (e.g. 254), measure
-    vTaskDelay(pdMS_TO_TICKS(1000));
-    static float yData[256];
-
-    ESP_LOGI(TAG, "Looping through brightness levels...");
-
-    for (int i = 0; i <= 256; ++i)
-    {
-        ESP_LOGI(TAG, "Setting brightness to: %d", i);
-        move_to_level(i, 0, lamp1_long_address);
-        vTaskDelay(pdMS_TO_TICKS(200));
-        yData[i] = get_averaged_sensor_reading();
-        ESP_LOGI(TAG, "brightness: %d, reading: %f", i, yData[i]);
-    }
-
-    float sensorMin = 999999.0f;
-    float sensorMax = -999999.0f;
-
+    // 1) measure brightness from 0..255
     for (int i = 0; i < 256; i++)
     {
-        if (yData[i] < sensorMin)
-            sensorMin = yData[i];
-        if (yData[i] > sensorMax)
-            sensorMax = yData[i];
+        move_to_level((uint8_t)i, 0, lamp1_long_address);
+        vTaskDelay(pdMS_TO_TICKS(150)); // let brightness settle
+
+        // We'll gather a stable sensor reading:
+        float reading = get_stable_sensor_reading(/*maxTries=*/3,
+                                                  /*sampleCount=*/50,
+                                                  /*maxStdDevAllowed=*/5.0f);
+        yMeasured[i] = reading;
+        ESP_LOGI(TAG, "Level=%3d -> ADC=%.2f", i, reading);
+        }
+    // 2) Build inverse table
+    buildInverseTable();
+
+    // Print the inverse LUT table
+    ESP_LOGI(TAG, "Inverse LUT Table:");
+    for (int i = 0; i < 256; i++) {
+        ESP_LOGI(TAG, "%3d -> %3d", i, g_inverseLUT[i]);
     }
-    float sensorRange = sensorMax - sensorMin;
-
-    static float xScaled[256], yScaled[256];
-    for (int i = 0; i < 256; i++)
-    {
-        xScaled[i] = (float)i / 255.0f; // Now in [0..1]
-
-        // Shift and scale the sensor data so that the minimum reading maps to 0.0
-        // and the maximum reading maps to 1.0
-        yScaled[i] = (yData[i] - sensorMin) / sensorRange; // Also in [0..1]
-    }
-    float A_fit, gamma_fit;
-    fitGammaPowerLawNormalized(xScaled, yScaled, 256, &A_fit, &gamma_fit);
-    printf("Fitted in normalized space: yScaled = %.3f * xScaled^(%.3f)\n",
-           A_fit, gamma_fit);
-
-    Poly2Coeffs coeffs;
-    fitQuadratic(xScaled, yScaled, 256, &coeffs);
-    printf("Fitted polynomial: y = %.4f + %.4f*x + %.4f*x^2\n",
-           coeffs.a0, coeffs.a1, coeffs.a2);
-    // Example usage:
-    float testX = 100.0f;
-    float predictedY = coeffs.a0 + coeffs.a1 * testX + coeffs.a2 * (testX * testX);
-    printf("Predicted Y for x=100 is %f\n", predictedY);
-
+    // Done
+    ESP_LOGI(TAG, "Calibration complete.");
     lights_init();
 }

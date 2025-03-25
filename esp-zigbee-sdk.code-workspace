@@ -57,7 +57,8 @@
 			"span": "c",
 			"math.h": "c",
 			"task.h": "c",
-			"chrono": "c"
+			"chrono": "c",
+			"stdbool.h": "c"
 		}
 	}
 }

@@ -21,20 +21,27 @@ typedef struct {
     dimming_mode_t dimming_mode;
     dimming_strategy_t dimming_strategy;
     gamma_mode_t gamma_mode;
-    double gamma_pow_value;
-    double gamma_pow_scale;
-    double gamma_pol_a;
-    double gamma_pol_b;
-    double gamma_pol_c;
+    double bezier_p1;
+    double bezier_p2;
     double smooth;
 
 } light_config_t;
+
+extern uint8_t g_inverseLUT[256];
 
 extern uint8_t g_gamma_lookup_table[256];
 extern light_config_t g_light_config;
 extern light_config_t g_light_config_default;
 extern esp_zb_ieee_addr_t lamp1_long_address, lamp2_long_address;
 
+
+typedef struct {
+    float x;
+    float y;
+} bezier_point_t;
+
+extern bezier_point_t g_bezier_points[256];
+extern size_t g_num_bezier_points;
 
 #define NVS_NAMESPACE "storage"
 #define NVS_KEY "light_config"

@@ -6,7 +6,7 @@
     <style>
       body {
         font-family: sans-serif;
-        max-width: 1000px;
+      
         margin: 20px auto;
         padding: 0 20px;
       }
@@ -36,7 +36,7 @@
 
       label {
         display: inline-block;
-      
+
         width: 200px;
       }
 
@@ -52,21 +52,39 @@
         gap: 1em;
         grid-template-columns: 2fr 1fr;
       }
+
+      #myCanvas{
+        border: 1px solid #aaa;
+      display: block;
+      background: #fafafa;
+        margin: 0 auto;
+      }
     </style>
   </head>
   <body>
     <h1>ESP WebSerial Control</h1>
 
     <button id="connectButton">Connect</button>
+    <div>
+      <canvas id="myCanvas" height="400" width="1000"></canvas>
+      
+      <div id="controls" style="display:flex; justify-content: space-between;">
+  
+        <div>
+          <button id="addBtn">Add Point</button>
+          <button id="removeBtn">Remove Point</button>
+        </div>
+    
+      </div>
+    </div>
+    <div style="display: flex;">
 
     <div id="canvasContainer">
       <canvas id="graphCanvas" width="1000" height="400"></canvas>
     </div>
+  </div>
     <div class="controlContainer">
-
-        <div id="fadersContainer"></div>
-       
-     
+      <div id="fadersContainer"></div>
 
       <div class="buttonContainer">
         <button id="debugButton">Debug on</button>
@@ -82,6 +100,11 @@
     <div id="console"></div>
 
     <script>
+      let points = [
+        { x: 0, y: 1 },
+        { x: 1, y: 0 },
+      ];
+
       let port;
       let reader;
       let inputDone;
@@ -104,8 +127,22 @@
       const lamp2Data = [];
       const sensorData = [];
       const faderConfigs = [
-        { id: "level_min", label: "Level Min:", type: "range", min: 0, max: 254, value: 0 },
-        { id: "level_max", label: "Level Max:", type: "range", min: 0, max: 254, value: 250 },
+        {
+          id: "level_min",
+          label: "Level Min:",
+          type: "range",
+          min: 0,
+          max: 254,
+          value: 0,
+        },
+        {
+          id: "level_max",
+          label: "Level Max:",
+          type: "range",
+          min: 0,
+          max: 254,
+          value: 250,
+        },
         {
           id: "offset_1",
           label: "Offset 1:",
@@ -156,71 +193,6 @@
           suffix: "% of transition_time",
           step: 0.01,
         },
-      {
-        id: "gamma_mode",
-        label: "Gamma Mode:",
-        type: "select",
-        options: [
-          { value: "0", text: "Linear" },
-          { value: "1", text: "Exponential" },
-          { value: "2", text: "Polynomial" },
-        ],
-        value: "0"
-      },
-      {
-        id: "gamma_pow_value",
-        label: "Gamma Pow Value:",
-        type: "range",
-        min: 0,
-        max: 5,
-        value: 1,
-        step: 0.01,
-      },
-      {
-        id: "gamma_pow_scale",
-        label: "Gamma Pow Scale:",
-        type: "range",
-        min: 0,
-        max: 5,
-        value: 1,
-        step: 0.01,
-      },
-      {
-        id: "gamma_pol_a",
-        label: "Gamma Pol A:",
-        type: "range",
-        min: -10,
-        max: 10,
-        value: 0,
-        step: 0.01,
-      },
-      {
-        id: "gamma_pol_b",
-        label: "Gamma Pol B:",
-        type: "range",
-        min: -10,
-        max: 10,
-        value: 0,
-        step: 0.01,
-      },
-      {
-        id: "gamma_pol_c",
-        label: "Gamma Pol C:",
-        type: "range",
-        min: -10,
-        max: 10,
-        value: 0,
-        step: 0.01,
-      },
-        {
-          id: "smooth",
-          label: "Smooth:",
-          type: "range",
-          min: 0,
-          max: 1,
-          value: 0,
-          step: 0.01,
-        },
 
         {
           id: "dimming_strategy",
@@ -232,8 +204,8 @@
             { value: "2", text: "Level Move with On Off" },
             { value: "3", text: "Level Move" },
           ],
-          value: "normal"
-        }
+          value: "normal",
+        },
       ];
 
       function createControl(config) {
@@ -253,7 +225,7 @@
           control.step = config.step;
         } else if (config.type === "select") {
           control = document.createElement("select");
-          config.options.forEach(option => {
+          config.options.forEach((option) => {
             const opt = document.createElement("option");
             opt.value = option.value;
             opt.textContent = option.text;
@@ -327,7 +299,6 @@
         await sendSerialLine("start_calibration");
       });
 
-
       async function connectToSerial() {
         try {
           port = await navigator.serial.requestPort({
@@ -370,18 +341,30 @@
                 const line = buffer.slice(0, newlineIndex);
                 buffer = buffer.slice(newlineIndex + 1);
 
-                if (line.startsWith("VALUE")) {
+                if (line.startsWith("VALUE bezier_points")) {
+                  const parts = line.split(" ");
+                  points = []; // Clear the existing points
+                  for (let i = 2; i < parts.length; i += 2) {
+                    const x = parseFloat(parts[i]) 
+                    const y = parseFloat(parts[i + 1]) 
+                    points.push({ x, y });
+                  }
+                  drawBezierCurve();
+                  appendToConsole(`Points updated: ${points.length} points\n`);
+                } else if (line.startsWith("VALUE")) {
                   const parts = line.split(" ");
                   if (parts.length === 3) {
                     const varName = parts[1];
                     const varValue = parts[2];
                     appendToConsole(`Received ${varName}: ${varValue}\n`);
 
-                    const varFader = document.getElementById(`${varName}Control`);
+                    const varFader = document.getElementById(
+                      `${varName}Control`
+                    );
                     if (varFader) {
-                      varFader.value = parseInt(varValue);
+                      varFader.value = parseFloat(varValue);
                     }
-                    
+
                     const varSpan = document.getElementById(`${varName}Value`);
                     if (varSpan) {
                       varSpan.textContent = varValue;
@@ -495,6 +478,183 @@
           Math.max(...sensorData.map((s) => s.value))
         );
       }
+
+      const bezierCanvas = document.getElementById("myCanvas");
+      const bezierCtx = bezierCanvas.getContext("2d");
+
+      const addBtn = document.getElementById("addBtn");
+      const removeBtn = document.getElementById("removeBtn");
+
+      let draggedIndex = null;
+      let changed = false;
+      bezierCanvas.addEventListener("mousedown", onBezierMouseDown);
+      bezierCanvas.addEventListener("mousemove", onBezierMouseMove);
+      bezierCanvas.addEventListener("mouseup", onBezierMouseUp);
+      bezierCanvas.addEventListener("mouseleave", onBezierMouseUp);
+      function onBezierMouseDown(e) {
+        const { offsetX, offsetY } = e;
+        const segmentWidth = bezierCanvas.width / repeat_n;
+        const segmentIndex = Math.floor(offsetX / segmentWidth); // Determine which segment was clicked
+        const clickX = (offsetX % segmentWidth) / segmentWidth;
+        const clickY = offsetY / bezierCanvas.height;
+
+        const thres = 0.1;
+        for (let i = 0; i < points.length; i++) {
+          const dx = Math.min(Math.abs(clickX - points[i].x), Math.abs((1 - clickX) - points[i].x)); // Account for mirroring
+          const dy = clickY - points[i].y;
+          if (Math.sqrt(dx * dx + dy * dy) < thres) {
+            draggedIndex = i;
+            break;
+          }
+        }
+      }
+
+      function onBezierMouseMove(e) {
+        if (draggedIndex !== null) {
+          const i = draggedIndex;
+          changed = true;
+          const segmentWidth = bezierCanvas.width / repeat_n;
+          const normX = ((e.offsetX % segmentWidth) / segmentWidth);
+          const normY = e.offsetY / bezierCanvas.height;
+
+          if (i === 0) {
+            points[i].x = 0;
+            points[i].y = normY;
+          } else if (i === points.length - 1) {
+            points[i].x = 1;
+            points[i].y = normY;
+          } else {
+            points[i].x = Math.min(normX, 1 - normX); // Ensure symmetry in mirroring
+            points[i].y = normY;
+          }
+          drawBezierCurve();
+        }
+      }
+
+      function onBezierMouseUp() {
+        draggedIndex = null;
+        if (changed) {
+          sendBezierPoints();
+          changed = false;
+        }
+      }
+
+      addBtn.addEventListener("click", () => {
+        if (points.length >= 2) {
+          const lastIndex = points.length - 1;
+          const secondLastIndex = points.length - 2;
+          const midX = (points[secondLastIndex].x + points[lastIndex].x) / 2;
+          const midY = (points[secondLastIndex].y + points[lastIndex].y) / 2;
+          points.splice(lastIndex, 0, { x: midX, y: midY });
+          sendBezierPoints();
+          drawBezierCurve();
+        }
+      });
+     
+removeBtn.addEventListener("click", () => {
+  if (points.length > 2) {
+    points.splice(points.length - 2, 1);
+    sendBezierPoints();
+    drawBezierCurve();
+  }
+});
+
+      function binomial(n, k) {
+        let result = 1;
+        for (let i = 1; i <= k; i++) {
+          result = (result * (n - (k - i))) / i;
+        }
+        return result;
+      }
+
+      let repeat_n = 3; 
+
+      function drawBezierCurve() {
+        bezierCtx.clearRect(0, 0, bezierCanvas.width, bezierCanvas.height);
+
+        // Draw original and mirrored curves multiple times
+        for (let repeat = 0; repeat < repeat_n; repeat++) {
+          const offsetX = repeat * bezierCanvas.width / repeat_n;
+
+        const denormalizedPoints = points.map(point => ({
+          x: point.x * bezierCanvas.width/repeat_n,
+          y: point.y * bezierCanvas.height
+        }));
+
+          const mirroredPoints = points.map(point => ({
+            x: (1 - point.x) * bezierCanvas.width/repeat_n,
+            y: point.y * bezierCanvas.height
+          }));
+
+          // Draw original curve
+          drawBezier(denormalizedPoints, offsetX);
+
+          // Draw mirrored curve
+          drawBezier(mirroredPoints, offsetX);
+        }
+      }
+
+      function drawBezier(denormalizedPts, offsetX = 0) {
+        const n = denormalizedPts.length - 1;
+        bezierCtx.beginPath();
+        bezierCtx.moveTo(denormalizedPts[0].x + offsetX, denormalizedPts[0].y);
+        const steps = 200;
+        for (let step = 1; step <= steps; step++) {
+          const t = step / steps;
+          let x = 0, y = 0;
+          for (let i = 0; i <= n; i++) {
+            const b = binomial(n, i) * Math.pow(1 - t, n - i) * Math.pow(t, i);
+            x += denormalizedPts[i].x * b;
+            y += denormalizedPts[i].y * b;
+          }
+          bezierCtx.lineTo(x + offsetX, y);
+        }
+        bezierCtx.strokeStyle = "black";
+        bezierCtx.lineWidth = 2;
+        bezierCtx.stroke();
+
+        // Draw dashed lines between control points
+        bezierCtx.beginPath();
+        bezierCtx.setLineDash([5, 3]);
+        for (let i = 0; i < denormalizedPts.length; i++) {
+          if (i === 0) {
+            bezierCtx.moveTo((denormalizedPts[i].x + offsetX), denormalizedPts[i].y);
+          } else {
+            bezierCtx.lineTo((denormalizedPts[i].x + offsetX), denormalizedPts[i].y);
+          }
+        }
+        bezierCtx.strokeStyle = "gray";
+        bezierCtx.lineWidth = 1;
+        bezierCtx.stroke();
+        bezierCtx.setLineDash([]);
+
+        // Draw control points
+        for (let i = 0; i < denormalizedPts.length; i++) {
+          bezierCtx.beginPath();
+          bezierCtx.arc((denormalizedPts[i].x + offsetX), denormalizedPts[i].y, 5, 0, 2 * Math.PI);
+          if (i === 0 || i === denormalizedPts.length - 1) {
+            bezierCtx.fillStyle = "red";
+          } else {
+            bezierCtx.fillStyle = "blue";
+      }
+          bezierCtx.fill();
+        }
+      }
+
+
+
+      function sendBezierPoints() {
+        const pointsData = points
+          .map((point) => {
+            const normalizedX = point.x / bezierCanvas.width;
+            const normalizedY = point.y / bezierCanvas.height;
+            return `${normalizedX.toFixed(2)} ${normalizedY.toFixed(2)}`;
+          })
+          .join(", ");
+
+        sendVariableUpdate("bezier_points", pointsData);
+      }
+      drawBezierCurve();
     </script>
   </body>
 </html>

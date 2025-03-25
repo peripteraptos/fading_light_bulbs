@@ -24,13 +24,15 @@ int cmd_get_config(int argc, char **argv)
     printf("VALUE transition_time %.2f\n", g_light_config.transition_time);
     printf("VALUE dimming_mode %u\n", g_light_config.dimming_mode);
     printf("VALUE dimming_strategy %u\n", g_light_config.dimming_strategy);
-    printf("VALUE gamma_pow_value %.4f\n", g_light_config.gamma_pow_value);
-    printf("VALUE gamma_pow_scale %.4f\n", g_light_config.gamma_pow_scale);
-    printf("VALUE gamma_pol_a %.4f\n", g_light_config.gamma_pol_a);
-    printf("VALUE gamma_pol_b %.4f\n", g_light_config.gamma_pol_b);
-    printf("VALUE gamma_pol_c %.4f\n", g_light_config.gamma_pol_c);
+    printf("VALUE bezier_p1 %.2f\n", g_light_config.bezier_p1);
+    printf("VALUE bezier_p2 %.2f\n", g_light_config.bezier_p2);
     printf("VALUE gamma_mode %u\n", g_light_config.gamma_mode);
     printf("VALUE smooth %.2f\n", g_light_config.smooth);
+    printf("VALUE bezier_points");
+        for (size_t i = 0; i < g_num_bezier_points; ++i) {
+        printf(" %.2f %.2f", g_bezier_points[i].x, 1-g_bezier_points[i].y);
+        }
+    printf("\n");
     return 0;
 }
 
@@ -81,26 +83,6 @@ static int cmd_set_config(int argc, char **argv)
     {
         g_light_config.dimming_mode = (dimming_mode_t)value;
     }
-    else if (strcmp(param, "gamma_pow_value") == 0)
-    {
-        g_light_config.gamma_pow_value = value;
-    }
-    else if (strcmp(param, "gamma_pow_scale") == 0)
-    {
-        g_light_config.gamma_pow_scale = value;
-    }
-    else if (strcmp(param, "gamma_pol_a") == 0)
-    {
-        g_light_config.gamma_pol_a = value;
-    }
-    else if (strcmp(param, "gamma_pol_b") == 0)
-    {
-        g_light_config.gamma_pol_b = value;
-    }
-    else if (strcmp(param, "gamma_pol_c") == 0)
-    {
-        g_light_config.gamma_pol_c = value;
-    }
     else if (strcmp(param, "gamma_mode") == 0)
     {
         g_light_config.gamma_mode = (uint8_t)value;
@@ -108,6 +90,29 @@ static int cmd_set_config(int argc, char **argv)
     else if (strcmp(param, "dimming_strategy") == 0)
     {
         g_light_config.dimming_strategy = (uint8_t)value;
+    }
+    else if (strcmp(param, "bezier_points") == 0)
+    {
+        if (argc < 4 || argc % 2 != 0)
+        {
+            ESP_LOGW(TAG, "Usage: set bezier_points <x1> <y1> <x2> <y2> ...");
+            return 1;
+        }
+
+        size_t num_points = (argc - 2) / 2;
+        if (num_points > 200)
+        {
+            ESP_LOGW(TAG, "Too many bezier points provided. Maximum is %zu.", 200);
+            return 1;
+        }
+
+        for (size_t i = 0; i < num_points; ++i)
+        {
+            g_bezier_points[i].x = atof(argv[2 + i * 2]);
+            g_bezier_points[i].y = 1 - atof(argv[3 + i * 2]);
+        }
+
+        g_num_bezier_points = num_points;
     }
     else
     {

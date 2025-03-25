@@ -37,18 +37,27 @@ light_config_t g_light_config_default = {
     .on_time = 0,
     .off_time = 0,
     .transition_time = 10.0,
-    .gamma_pow_value = 1.018,
-    .gamma_pow_scale = 0.557,
-    .gamma_pol_a = 0.0639,
-    .gamma_pol_b = -0.2980,
-    .gamma_pol_c = 1.2331,
+    .bezier_p1 = 0.5,
+    .bezier_p2 = 0.75,
     .gamma_mode = GAMMA_MODE_LINEAR,
     .smooth = 0,
     .dimming_mode = DIMMING_MODE_ADVANCED,
-    .dimming_strategy = DIMMING_STRATEGY_MOVE_TO_LEVEL_WITH_OFF_OFF
+    .dimming_strategy = DIMMING_STRATEGY_MOVE_TO_LEVEL
 };
 
 
+uint8_t g_inverseLUT[256];
+
+bezier_point_t g_bezier_points[256] = {
+    {0.0, 0.0},
+    {0.25, 0.1},
+    {0.5, 0.5},
+    {0.75, 0.9},
+    {1.0, 1.0}
+};
+
+
+size_t g_num_bezier_points = 5;
 // Fitted in normalized space: yScaled = 0.557 * xScaled^(1.018)
 // Fitted polynomial: y = 0.0639 + -0.2980*x + 1.2331*x^2
 // Predicted Y for x=100 is 12301.364258

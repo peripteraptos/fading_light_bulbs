@@ -37,27 +37,8 @@ typedef struct {
 typedef struct {
     esp_zb_ieee_addr_t address;
     uint8_t id;
-    bool use_gamma;
-    bool use_lut;
-    bool with_onoff;
     double offset;
-    double on_time;
-    double off_time;
-    uint8_t level_min;
-    uint8_t level_max;
-    double transition_time;
-    double gamma_pow_value;
-    double gamma_pow_scale;
-    double gamma_pol_a;
-    double gamma_pol_b;
-    double gamma_pol_c;
-    gamma_mode_t gamma_mode;
-    dimming_mode_t dimming_mode;
-    dimming_strategy_t dimming_strategy;
-    double smooth;
     TaskHandle_t task_handle;
-    brightness_step_t * step_table;
-    size_t step_table_size;
 } light_fade_t;
 
 /**

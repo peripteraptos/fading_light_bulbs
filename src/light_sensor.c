@@ -26,7 +26,7 @@
  #define EXAMPLE_READ_LEN                    512
 
 #define EXAMPLE_ADC1_CHAN0 ADC_CHANNEL_6
-#define EXAMPLE_ADC_ATTEN  ADC_ATTEN_DB_12
+#define EXAMPLE_ADC_ATTEN  ADC_ATTEN_DB_6
  
 
 
