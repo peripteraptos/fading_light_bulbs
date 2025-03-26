@@ -1,661 +1,727 @@
 <!DOCTYPE html>
 <html lang="en">
-<head>
-  <meta charset="UTF-8" />
-  <title>ESP WebSerial Control</title>
-  <style>
-    body {
-      font-family: sans-serif;
-      margin: 20px auto;
-      padding: 0 20px;
-    }
+  <head>
+    <meta charset="UTF-8" />
+    <title>ESP WebSerial Control</title>
+    <style>
+      body {
+        font-family: sans-serif;
+        margin: 20px auto;
+        padding: 0 20px;
+        max-width: 1280px;
+      }
 
-    /* Make canvases stretch to container width; keep aspect ratio in JS */
-    canvas {
-      max-width: 100%;
-      display: block;
-      /* height: auto;  <-- we'll set 'height' explicitly in JS to maintain ratio */
-    }
+      /* Make canvases stretch to container width; keep aspect ratio in JS */
+      canvas {
+        max-width: 100%;
+        display: block;
+        /* height: auto;  <-- we'll set 'height' explicitly in JS to maintain ratio */
+      }
 
-    #console {
-      width: 100%;
-      height: 200px;
-      margin-top: 10px;
-      border: 1px solid #ccc;
-      padding: 10px;
-      overflow-y: scroll;
-      white-space: pre-wrap;
-    }
-    #canvasContainer {
-      width: 100%;
-      border: 1px solid #ccc;
-      margin-top: 20px;
-      position: relative;
-    }
-    .fader-container,
-    .other-input-container {
-      margin: 1em 0;
-      display: grid;
-      gap: 0px 10px;
-      grid-template-columns: 200px 1fr 100px;
-    }
-    label {
-      display: inline-block;
-      width: 200px;
-    }
-    .buttonContainer {
-      display: flex;
-      flex-direction: column;
-      margin-top: 1rem;
-      gap: 1em;
-    }
-    .controlContainer {
-      display: grid;
-      gap: 1em;
-      grid-template-columns: 2fr 1fr;
-    }
-  </style>
-</head>
-<body>
-  <h1>ESP WebSerial Control</h1>
+      #console {
+        width: 100%;
+        height: 200px;
+        margin-top: 10px;
+        border: 1px solid #ccc;
+        padding: 10px;
+        overflow-y: scroll;
+        white-space: pre-wrap;
+      }
+      #canvasContainer {
+        width: 100%;
+        aspect-ratio: 32 / 9;
+        border: 1px solid #ccc;
+        margin-top: 20px;
+        position: relative;
+      }
+      .fader-container,
+      .other-input-container {
+        margin: 1em 0;
+        display: grid;
+        gap: 0px 10px;
+        grid-template-columns: 200px 1fr 100px;
+      }
+      label {
+        display: inline-block;
+        width: 200px;
+      }
+      .buttonContainer {
+        display: flex;
+        flex-direction: column;
+        margin-top: 1rem;
+        gap: 1em;
+      }
+      .controlContainer {
+        display: grid;
+        gap: 1em;
+        grid-template-columns: 2fr 1fr;
+      }
 
-  <button id="connectButton">Connect</button>
-  <div>
-    <!-- No width/height attributes here; we’ll set them in JS -->
-    <canvas id="myCanvas"></canvas>
-    <div id="controls" style="display:flex; justify-content: space-between;">
-      <div>
-        <button id="addBtn">Add Point</button>
-        <button id="removeBtn">Remove Point</button>
+      .controlCanvasContainer {
+        border: 1px solid #ccc;
+        aspect-ratio: 4 / 3;
+      }
+
+      .controlCanvasContainer > canvas {
+        /* width: 100%; */
+      }
+    </style>
+  </head>
+  <body>
+    <h1>ESP WebSerial Control</h1>
+
+    <button id="connectButton">Connect</button>
+
+    <div style="display: flex">
+      <div id="canvasContainer">
+        <canvas id="graphCanvas"></canvas>
       </div>
     </div>
-  </div>
 
-  <div style="display: flex;">
-    <div id="canvasContainer">
-      <canvas id="graphCanvas"></canvas>
+    <div class="controlContainer">
+      <div id="fadersContainer"></div>
+      <div class="buttonContainer">
+        <div class="controlCanvasContainer">
+          <canvas id="curveCanvas"></canvas>
+        </div>
+        <div class="controlCanvasContainer">
+          <canvas id="gammaCanvas"></canvas>
+        </div>
+        <button id="debugButton">Debug on</button>
+        <button id="debugOffButton">Debug off</button>
+        <button id="saveButton">Save</button>
+        <button id="reloadButton">
+          Discard changes (reload saved settings)
+        </button>
+        <button id="resetButton">Reset to factory defaults</button>
+        <button id="calibrationButton">Start LUT Calibration</button>
+      </div>
     </div>
-  </div>
 
-  <div class="controlContainer">
-    <div id="fadersContainer"></div>
-    <div class="buttonContainer">
-      <button id="debugButton">Debug on</button>
-      <button id="debugOffButton">Debug off</button>
-      <button id="saveButton">Save</button>
-      <button id="reloadButton">Discard changes (reload saved settings)</button>
-      <button id="resetButton">Reset to factory defaults</button>
-      <button id="calibrationButton">Start LUT Calibration</button>
-    </div>
-  </div>
+    <div id="console"></div>
 
-  <div id="console"></div>
+    <script>
+      (() => {
+        "use strict";
 
-  <script>
-  (() => {
-    "use strict";
+        /********************************************************
+         * 1) GLOBALS & INITIAL VALUES
+         ********************************************************/
+        let port, reader, inputStream, outputStream, inputDone, outputDone;
 
-    /********************************************************
-     * 1) GLOBALS & INITIAL VALUES
-     ********************************************************/
-    let port, reader, inputStream, outputStream, inputDone, outputDone;
+        const consoleElement = document.getElementById("console");
 
-    const consoleElement = document.getElementById("console");
-    const bezierCanvas = document.getElementById("myCanvas");
-    const bezierCtx = bezierCanvas.getContext("2d");
+        const graphCanvas = document.getElementById("graphCanvas");
+        const gammaCanvas = document.getElementById("gammaCanvas");
+        const curveCanvas = document.getElementById("curveCanvas");
 
-    const graphCanvas = document.getElementById("graphCanvas");
-    const ctx = graphCanvas.getContext("2d");
+        const ctx = graphCanvas.getContext("2d");
+        const gammactx = gammaCanvas.getContext("2d");
+        const curvectx = curveCanvas.getContext("2d");
 
-    // Data arrays
-    const lamp1Data = [];
-    const lamp2Data = [];
-    const sensorData = [];
+        // Data arrays
+        const lamp1Data = [];
+        const lamp2Data = [];
+        const sensorData = [];
 
-    // Our main “curve” points, each { x: 0..1, y: 0..1 }:
-    let points = [
-      { x: 0, y: 1 },
-      { x: 1, y: 0 },
-    ];
+        // Our main “curve” points, each { x: 0..1, y: 0..1 }:
+        let points = [
+          { x: 0, y: 1 },
+          { x: 1, y: 0 },
+        ];
 
-    // We'll replicate & mirror the curve these many times
-    let repeat_n = 5;
+        // We'll replicate & mirror the curve these many times
+        let repeat_n = 5;
 
-    // Fader definitions
-    const faderConfigs = [
-      { id: "level_min",        label: "Level Min:",        type: "range", min: 0,   max: 254, value: 0 },
-      { id: "level_max",        label: "Level Max:",        type: "range", min: 0,   max: 254, value: 250 },
-      { id: "offset_1",         label: "Offset 1:",         type: "range", min: 0,   max: 1,   step: 0.01, value: 0,    suffix: "% of cycle time" },
-      { id: "offset_2",         label: "Offset 2:",         type: "range", min: 0,   max: 1,   step: 0.01, value: 0.5,  suffix: "% of cycle time" },
-      { id: "transition_time",  label: "Transition Time:",  type: "range", min: 0,   max: 50,  step: 0.01, value: 10,   suffix: "seconds" },
-      { id: "on_time",          label: "On Time:",          type: "range", min: 0,   max: 5,   step: 0.01, value: 0,    suffix: "% of transition_time" },
-      { id: "off_time",         label: "Off Time:",         type: "range", min: 0,   max: 5,   step: 0.01, value: 0,    suffix: "% of transition_time" },
-      {
-        id: "dimming_strategy",
-        label: "Dimming Strategy:",
-        type: "select",
-        options: [
-          { value: "0", text: "Move to Level with Off" },
-          { value: "1", text: "Move to Level" },
-          { value: "2", text: "Level Move with On Off" },
-          { value: "3", text: "Level Move" },
-        ],
-        value: "normal",
-      },
-    ];
+        // Fader definitions
+        const faderConfigs = [
+          {
+            id: "curve_type",
+            label: "Curve Type:",
+            type: "select",
+            options: [
+              { value: "0", text: "Linear" },
+              { value: "1", text: "Sine" },
+            ],
+            value: "sin",
+          },
+          
+          {
+            id: "level_min",
+            label: "Level Min:",
+            type: "range",
+            min: 0,
+            max: 254,
+            value: 0,
+          },
+          {
+            id: "level_max",
+            label: "Level Max:",
+            type: "range",
+            min: 0,
+            max: 254,
+            value: 250,
+          },
+          {
+            id: "offset_1",
+            label: "Offset 1:",
+            type: "range",
+            min: 0,
+            max: 1,
+            step: 0.01,
+            value: 0,
+            suffix: "% of cycle time",
+          },
+          {
+            id: "offset_2",
+            label: "Offset 2:",
+            type: "range",
+            min: 0,
+            max: 1,
+            step: 0.01,
+            value: 0.5,
+            suffix: "% of cycle time",
+          },
+          {
+            id: "transition_time",
+            label: "Transition Time:",
+            type: "range",
+            min: 0,
+            max: 50,
+            step: 0.01,
+            value: 10,
+            suffix: "seconds",
+          },
+          {
+            id: "on_time",
+            label: "On Time:",
+            type: "range",
+            min: 0,
+            max: 5,
+            step: 0.01,
+            value: 0,
+            suffix: "% of transition_time",
+          },
+          {
+            id: "off_time",
+            label: "Off Time:",
+            type: "range",
+            min: 0,
+            max: 5,
+            step: 0.01,
+            value: 0,
+            suffix: "% of transition_time",
+          },
+          {
+            id: "gamma_mode",
+            label: "Gamma mode:",
+            type: "select",
+            options: [
+              { value: "0", text: "Linear" },
+              { value: "1", text: "Exponential" },
+              { value: "2", text: "Logarithmic" },
+            ],
+            value: "0",
+          },
+          {
+            id: "gamma_pow_value",
+            label: "Gamma Power Value:",
+            type: "range",
+            min: 0.01,
+            max: 10,
+            step: 0.01,
+            value: 2.2,
+            suffix: "",
+          },
+          {
+            id: "gamma_pow_scale",
+            label: "Gamma Power Scale:",
+            type: "range",
+            min: 0.5,
+            max: 2.5,
+            step: 0.01,
+            value: 1,
+            suffix: "",
+          },
+          {
+            id: "gamma_log_value",
+            label: "Gamma Log Value:",
+            type: "range",
+            min: 0.1,
+            max: 100,
+            step: 0.1,
+            value: 1,
+            suffix: "",
+          },
+          {
+            id: "dimming_strategy",
+            label: "Dimming Strategy:",
+            type: "select",
+            options: [
+              { value: "0", text: "Move to Level with Off" },
+              { value: "1", text: "Move to Level" },
+              // { value: "2", text: "Level Move with On Off" },
+              // { value: "3", text: "Level Move" },
+            ],
+            value: "1",
+          },
+          {
+            id: "step_table_size",
+            label: "Step Table Size:",
+            type: "range",
+            min: 1,
+            max: 100,
+            value: 10,
+          },
+        ];
 
-    /********************************************************
-     * 2) UTILITY FUNCTIONS
-     ********************************************************/
-    function appendToConsole(text) {
-      consoleElement.textContent += text;
-      consoleElement.scrollTop = consoleElement.scrollHeight;
-    }
-
-    function debounce(fn, wait) {
-      let timeout;
-      return function(...args) {
-        clearTimeout(timeout);
-        timeout = setTimeout(() => fn(...args), wait);
-      };
-    }
-
-    // Binomial coefficient for the Bezier formula
-    function binomial(n, k) {
-      let result = 1;
-      for (let i = 1; i <= k; i++) {
-        result = (result * (n - (k - i))) / i;
-      }
-      return result;
-    }
-
-    /********************************************************
-     * 3) RESPONSIVE CANVAS SIZING
-     ********************************************************/
-    // We’ll keep the same ratio as (1000 wide : 400 high) = 2.5:1
-    const ASPECT_RATIO = 1000 / 200; // 2.5
-
-    function resizeCanvases() {
-      // Example: use #canvasContainer width to decide how wide to make each
-      const container = document.getElementById("canvasContainer");
-      const containerWidth = container.clientWidth;
-
-      // We keep the same aspect ratio, so:
-      const newWidth = containerWidth;
-      const newHeight = Math.round(containerWidth / ASPECT_RATIO);
-
-      // Update the internal resolution
-      setCanvasSize(bezierCanvas, newWidth, newHeight);
-      setCanvasSize(graphCanvas, newWidth, newHeight);
-
-      // Redraw both canvases in their new sizes
-      drawBezierCurve();
-      drawGraph();
-    }
-
-    function setCanvasSize(canvas, width, height) {
-      canvas.width = width;
-      canvas.height = height;
-    }
-
-    /********************************************************
-     * 4) FADER CREATION
-     ********************************************************/
-    const fadersContainer = document.getElementById("fadersContainer");
-    function createFaderControl(config) {
-      const container = document.createElement("div");
-      container.className = "fader-container";
-
-      const label = document.createElement("label");
-      label.textContent = config.label;
-      label.setAttribute("for", `${config.id}Control`);
-
-      let control;
-      if (config.type === "range") {
-        control = document.createElement("input");
-        control.type = "range";
-        control.min = config.min;
-        control.max = config.max;
-        control.value = config.value;
-        if (config.step) control.step = config.step;
-      } else {
-        // type === "select"
-        control = document.createElement("select");
-        config.options.forEach((optCfg) => {
-          const opt = document.createElement("option");
-          opt.value = optCfg.value;
-          opt.textContent = optCfg.text;
-          control.appendChild(opt);
-        });
-        control.value = config.value;
-      }
-
-      control.id = `${config.id}Control`;
-      const valueSpan = document.createElement("span");
-      valueSpan.id = `${config.id}Value`;
-      valueSpan.textContent = config.value;
-
-      // Send updates on user input
-      control.addEventListener("input", () => {
-        valueSpan.textContent = control.value;
-        sendVariableUpdate(config.id, control.value);
-      });
-
-      container.appendChild(label);
-      container.appendChild(control);
-      container.appendChild(valueSpan);
-
-      if (config.suffix && config.type === "range") {
-        const suffixSpan = document.createElement("span");
-        suffixSpan.textContent = ` ${config.suffix}`;
-        container.appendChild(suffixSpan);
-      }
-      fadersContainer.appendChild(container);
-    }
-
-    // Build the sliders/selects
-    faderConfigs.forEach(createFaderControl);
-
-    /********************************************************
-     * 5) SERIAL I/O
-     ********************************************************/
-    const connectButton = document.getElementById("connectButton");
-    connectButton.addEventListener("click", async () => {
-      await connectToSerial();
-      getAllVariables();
-    });
-
-    async function connectToSerial() {
-      try {
-        port = await navigator.serial.requestPort({
-          filters: [{ usbVendorId: 0x303a }, { usbVendorId: 0x1a86 }],
-        });
-        await port.open({ baudRate: 115200, buffersize: 100000 });
-
-        // Prepare output
-        const textEncoder = new TextEncoderStream();
-        outputDone = textEncoder.readable.pipeTo(port.writable);
-        outputStream = textEncoder.writable;
-
-        // Prepare input
-        const textDecoder = new TextDecoderStream();
-        inputDone = port.readable.pipeTo(textDecoder.writable);
-        inputStream = textDecoder.readable;
-        reader = inputStream.getReader();
-
-        readLoop();
-        appendToConsole("> Connected to serial port.\n");
-      } catch (e) {
-        appendToConsole(`Error: ${e}\n`);
-      }
-    }
-
-    async function readLoop() {
-      let buffer = "";
-      while (true) {
-        try {
-          const { value, done } = await reader.read();
-          if (done) {
-            reader.releaseLock();
-            break;
+        /********************************************************
+         * 2) UTILITY FUNCTIONS
+         ********************************************************/
+        function appendToConsole(text) {
+          consoleElement.textContent += text;
+          if (consoleElement.textContent.length > 10000) {
+            consoleElement.textContent = consoleElement.textContent.substring(
+              consoleElement.textContent.length - 9000
+            );
           }
-          if (value) {
-            buffer += value;
-            let newlineIndex;
-            while ((newlineIndex = buffer.indexOf("\n")) !== -1) {
-              const line = buffer.slice(0, newlineIndex).trim();
-              buffer = buffer.slice(newlineIndex + 1);
-              handleSerialLine(line);
+          consoleElement.scrollTop = consoleElement.scrollHeight;
+        }
+
+        function debounce(fn, wait) {
+          let timeout;
+          return function (...args) {
+            clearTimeout(timeout);
+            timeout = setTimeout(() => fn(...args), wait);
+          };
+        }
+
+        /********************************************************
+         * 3) RESPONSIVE CANVAS SIZING
+         ********************************************************/
+        // We’ll keep the same ratio as (1000 wide : 400 high) = 2.5:1
+
+        function resizeCanvases() {
+          document.querySelectorAll("canvas").forEach((c) => {
+            // Example: use #canvasContainer width to decide how wide to make each
+            const container = c.parentNode;
+
+            c.width = container.clientWidth;
+            c.height = container.clientHeight;
+            // Redraw both canvases in their new sizes
+          });
+
+          drawGraph();
+          drawGamma();
+          drawCurve();
+        }
+
+        function setCanvasSize(canvas, width, height) {
+          canvas.width = width;
+          canvas.height = height;
+        }
+
+        /********************************************************
+         * 4) FADER CREATION
+         ********************************************************/
+        const fadersContainer = document.getElementById("fadersContainer");
+        function createFaderControl(config) {
+          const container = document.createElement("div");
+          container.className = "fader-container";
+
+          const label = document.createElement("label");
+          label.textContent = config.label;
+          label.setAttribute("for", `${config.id}Control`);
+
+          let control;
+          if (config.type === "range") {
+            control = document.createElement("input");
+            control.type = "range";
+            control.min = config.min;
+            control.max = config.max;
+            control.value = config.value;
+            if (config.step) control.step = config.step;
+          } else {
+            // type === "select"
+            control = document.createElement("select");
+            config.options.forEach((optCfg) => {
+              const opt = document.createElement("option");
+              opt.value = optCfg.value;
+              opt.textContent = optCfg.text;
+              control.appendChild(opt);
+            });
+            control.value = config.value;
+          }
+
+          control.id = `${config.id}Control`;
+          const valueSpan = document.createElement("span");
+          valueSpan.id = `${config.id}Value`;
+          valueSpan.textContent = config.value;
+
+          // Send updates on user input
+          control.addEventListener("input", () => {
+            valueSpan.textContent = control.value;
+            sendVariableUpdate(config.id, control.value);
+            drawCurve();
+            drawGamma();
+          });
+
+          container.appendChild(label);
+          container.appendChild(control);
+          container.appendChild(valueSpan);
+
+          if (config.suffix && config.type === "range") {
+            const suffixSpan = document.createElement("span");
+            suffixSpan.textContent = ` ${config.suffix}`;
+            container.appendChild(suffixSpan);
+          }
+          fadersContainer.appendChild(container);
+        }
+
+        // Build the sliders/selects
+        faderConfigs.forEach(createFaderControl);
+
+        /********************************************************
+         * 5) SERIAL I/O
+         ********************************************************/
+        const connectButton = document.getElementById("connectButton");
+        connectButton.addEventListener("click", async () => {
+          await connectToSerial();
+          getAllVariables();
+        });
+
+        async function connectToSerial() {
+          try {
+            port = await navigator.serial.requestPort({
+              filters: [{ usbVendorId: 0x303a }, { usbVendorId: 0x1a86 }],
+            });
+            await port.open({ baudRate: 115200, buffersize: 100000 });
+
+            // Prepare output
+            const textEncoder = new TextEncoderStream();
+            outputDone = textEncoder.readable.pipeTo(port.writable);
+            outputStream = textEncoder.writable;
+
+            // Prepare input
+            const textDecoder = new TextDecoderStream();
+            inputDone = port.readable.pipeTo(textDecoder.writable);
+            inputStream = textDecoder.readable;
+            reader = inputStream.getReader();
+
+            readLoop();
+            appendToConsole("> Connected to serial port.\n");
+          } catch (e) {
+            appendToConsole(`Error: ${e}\n`);
+          }
+        }
+
+        async function readLoop() {
+          let buffer = "";
+          while (true) {
+            try {
+              const { value, done } = await reader.read();
+              if (done) {
+                reader.releaseLock();
+                break;
+              }
+              if (value) {
+                buffer += value;
+                let newlineIndex;
+                while ((newlineIndex = buffer.indexOf("\n")) !== -1) {
+                  const line = buffer.slice(0, newlineIndex).trim();
+                  buffer = buffer.slice(newlineIndex + 1);
+                  handleSerialLine(line);
+                }
+              }
+            } catch (error) {
+              appendToConsole(`Read error: ${error}\n`);
+              break;
             }
           }
-        } catch (error) {
-          appendToConsole(`Read error: ${error}\n`);
-          break;
         }
-      }
-    }
 
-    function handleSerialLine(line) {
-      // If device returns updated “bezier_points”
-      if (line.startsWith("VALUE bezier_points")) {
-        const parts = line.split(/\s+/);
-        // [0]="VALUE", [1]="bezier_points", rest are x y x y ...
-        const floats = parts.slice(2).map(parseFloat);
-        points = [];
-        for (let i = 0; i < floats.length; i += 2) {
-          points.push({ x: floats[i], y: floats[i + 1] });
-        }
-        drawBezierCurve();
-        appendToConsole(`Points updated: ${points.length} points\n`);
-        return;
-      }
-
-      // If device returns normal “VALUE varName varValue”
-      if (line.startsWith("VALUE")) {
-        const parts = line.split(/\s+/);
-        if (parts.length === 3) {
-          const varName = parts[1];
-          const varValue = parts[2];
-          appendToConsole(`Received ${varName}: ${varValue}\n`);
-          updateFaderValue(varName, varValue);
-        } else {
-          appendToConsole(`Malformed VALUE: ${line}\n`);
-        }
-        return;
-      }
-
-      // Lamp changes: "LIGHT_CONTROL: Setting Lamp1 to 120 within 1000ms"
-      if (line.includes("LIGHT_CONTROL: Setting")) {
-        const match = line.match(/Lamp(\d+) to (\d+) within (\d+)ms/);
-        if (match) {
-          const lampNumber = match[1];
-          const lampValue = parseInt(match[2]);
-          const additionalMs = parseInt(match[3]);
-          recordLampValue(lampNumber, lampValue, additionalMs);
-        }
-        return;
-      }
-
-      // Light sensor: "LIGHT_SENSOR: Value: 513"
-      if (line.includes("LIGHT_SENSOR: Value:")) {
-        const m = line.match(/Value:\s+(\d+)/);
-        if (m) {
-          const sensorValue = parseInt(m[1]);
-          recordSensorValue(sensorValue);
-        }
-        return;
-      }
-
-      // Default: just log to console
-      appendToConsole(line + "\n");
-    }
-
-    function updateFaderValue(varName, varValue) {
-      const ctl = document.getElementById(varName + "Control");
-      const valSpan = document.getElementById(varName + "Value");
-      if (ctl) ctl.value = varValue;
-      if (valSpan) valSpan.textContent = varValue;
-    }
-
-    const sendSerialLine = debounce(async function(line) {
-      if (!outputStream) return;
-      const writer = outputStream.getWriter();
-      await writer.write(line + "\n");
-      writer.releaseLock();
-    }, 100);
-
-    function sendVariableUpdate(variableName, value) {
-      sendSerialLine(`set ${variableName} ${value}`);
-    }
-
-    function getAllVariables() {
-      sendSerialLine("get");
-    }
-
-    /********************************************************
-     * 6) LAMP & SENSOR GRAPH
-     ********************************************************/
-    function recordLampValue(lampNumber, lampValue, additionalMs) {
-      const now = Date.now() + additionalMs;
-      if (lampNumber === "1") {
-        lamp1Data.push({ time: now, value: lampValue });
-        if (lamp1Data.length > 200) lamp1Data.shift();
-      } else {
-        lamp2Data.push({ time: now, value: lampValue });
-        if (lamp2Data.length > 200) lamp2Data.shift();
-      }
-      drawGraph();
-    }
-
-    function recordSensorValue(val) {
-      const now = Date.now();
-      sensorData.push({ time: now, value: val });
-      if (sensorData.length > 800) sensorData.shift();
-      drawGraph();
-    }
-
-    function drawGraph() {
-      // Clear entire canvas
-      ctx.clearRect(0, 0, graphCanvas.width, graphCanvas.height);
-
-      const now = Date.now();
-      const timeWindow = 20000; // e.g. 20s
-
-      // Reusable data-plot function
-      function plotData(dataArray, strokeStyle, minVal, maxVal) {
-        ctx.beginPath();
-        ctx.strokeStyle = strokeStyle;
-        let firstInRange = true;
-
-        dataArray.forEach((entry) => {
-          const timeDiff = now - entry.time;
-          const x = graphCanvas.width - (timeDiff / timeWindow) * graphCanvas.width;
-          const y = graphCanvas.height - ((entry.value - minVal) / (maxVal - minVal)) * graphCanvas.height;
-
-          if (x >= 0) {
-            if (firstInRange) {
-              ctx.moveTo(x, y);
-              firstInRange = false;
+        function handleSerialLine(line) {
+          // If device returns normal “VALUE varName varValue”
+          if (line.startsWith("VALUE")) {
+            const parts = line.split(/\s+/);
+            if (parts.length === 3) {
+              const varName = parts[1];
+              const varValue = parts[2];
+              appendToConsole(`Received ${varName}: ${varValue}\n`);
+              updateFaderValue(varName, varValue);
             } else {
-              ctx.lineTo(x, y);
+              appendToConsole(`Malformed VALUE: ${line}\n`);
+            }
+            return;
+          }
+
+          // Lamp changes: "LIGHT_CONTROL: Setting Lamp1 to 120 within 1000ms"
+          if (line.includes("LIGHT_CONTROL: Setting")) {
+            const match = line.match(/Lamp(\d+) to (\d+) within (\d+)ms/);
+            if (match) {
+              const lampNumber = match[1];
+              const lampValue = parseInt(match[2]);
+              const additionalMs = parseInt(match[3]);
+              recordLampValue(lampNumber, lampValue, additionalMs);
+            }
+            return;
+          }
+
+          // Light sensor: "LIGHT_SENSOR: Value: 513"
+          if (line.includes("LIGHT_SENSOR: Value:")) {
+            const m = line.match(/Value:\s+(\d+)/);
+            if (m) {
+              const sensorValue = parseInt(m[1]);
+              recordSensorValue(sensorValue);
+            }
+            return;
+          }
+
+          // Default: just log to console
+          appendToConsole(line + "\n");
+        }
+
+        function updateFaderValue(varName, varValue) {
+          const ctl = document.getElementById(varName + "Control");
+          const valSpan = document.getElementById(varName + "Value");
+          if (ctl) ctl.value = varValue;
+          if (valSpan) valSpan.textContent = varValue;
+        }
+
+        const sendSerialLine = debounce(async function (line) {
+          if (!outputStream) return;
+          const writer = outputStream.getWriter();
+          await writer.write(line + "\n");
+          writer.releaseLock();
+        }, 100);
+
+        function sendVariableUpdate(variableName, value) {
+          sendSerialLine(`set ${variableName} ${value}`);
+          drawGamma();
+        }
+
+        function getAllVariables() {
+          sendSerialLine("get");
+        }
+
+        /********************************************************
+         * 6) LAMP & SENSOR GRAPH
+         ********************************************************/
+        function recordLampValue(lampNumber, lampValue, additionalMs) {
+          const now = Date.now() + additionalMs;
+          if (lampNumber === "1") {
+            lamp1Data.push({ time: now, value: lampValue });
+            if (lamp1Data.length > 200) lamp1Data.shift();
+          } else {
+            lamp2Data.push({ time: now, value: lampValue });
+            if (lamp2Data.length > 200) lamp2Data.shift();
+          }
+          drawGraph();
+        }
+
+        function recordSensorValue(val) {
+          const now = Date.now();
+          sensorData.push({ time: now, value: val });
+          if (sensorData.length > 800) sensorData.shift();
+          drawGraph();
+        }
+
+        function drawCurve() {
+          const width = curveCanvas.width;
+          const height = curveCanvas.height;
+
+          // Clear curve canvas
+          curvectx.clearRect(0, 0, width, height);
+
+          // Choose to draw either a sin or linear curve
+          // Determine if the curve to be drawn is a sine curve or a linear one based on the selection
+          const curveTypeControl = document.getElementById("curve_typeControl");
+          const drawSinCurve = curveTypeControl
+            ? curveTypeControl.value === "sin"
+            : false;
+
+          curvectx.beginPath();
+          curvectx.strokeStyle = "orange";
+
+          const levelMinControl = document.getElementById("level_minControl");
+          const levelMaxControl = document.getElementById("level_maxControl");
+
+          const normalizedMinY = levelMinControl
+            ? levelMinControl.value / 254
+            : 0.0;
+          const normalizedMaxY = levelMaxControl
+            ? levelMaxControl.value / 254
+            : 1;
+          if (drawSinCurve) {
+            for (let i = 0; i <= width; i++) {
+              const x = i / width;
+
+              const amplitude = (normalizedMaxY - normalizedMinY) / 2;
+              const offset = amplitude + normalizedMinY;
+              //const y = amplitude * Math.sin(2 * Math.PI * x) + offset;
+              const segments = width; // Assuming width as the number of segments
+              let fraction = i / (segments - 1);
+              fraction = 0.5 * (1.0 - Math.cos(fraction * Math.PI));
+              const y =   (fraction*(normalizedMaxY-normalizedMinY))+normalizedMinY;
+              if (i === 0) {
+                curvectx.moveTo(i, height * (1 - y));
+              } else {
+                curvectx.lineTo(i, height * (1 - y));
+              }
+            }
+          } else {
+            curvectx.moveTo(0, (1-normalizedMinY)*height);
+            curvectx.lineTo(width, (1-normalizedMaxY)*height);
+          }
+          curvectx.stroke();
+        }
+
+        function drawGamma() {
+          const width = gammaCanvas.width;
+          const height = gammaCanvas.height;
+
+          // Clear gamma canvas
+          gammactx.clearRect(0, 0, width, height);
+
+          // Drawing the gamma curve
+          gammactx.strokeStyle = "purple";
+          gammactx.beginPath();
+
+          for (let i = 0; i <= width; i++) {
+            const x = i / width;
+            const gammaMode =
+              document.getElementById("gamma_modeControl").value;
+            const gammaPowValue = parseFloat(
+              document.getElementById("gamma_pow_valueControl").value
+            );
+            const gammaPowScale = parseFloat(
+              document.getElementById("gamma_pow_scaleControl").value
+            );
+            const gammaLogValue = parseFloat(
+              document.getElementById("gamma_log_valueControl").value
+            );
+            let y;
+
+            switch (gammaMode) {
+              case "0": // Linear
+                y = x;
+                break;
+              case "1": // Exponential
+                y =
+                  gammaPowScale * Math.pow(x, 1 / gammaPowValue) -
+                  gammaPowScale +
+                  1;
+                break;
+              case "2": // Logarithmic
+                y =
+                  Math.log(1 + gammaLogValue * x) / Math.log(1 + gammaLogValue);
+                break;
+            }
+
+            if (i === 0) {
+              gammactx.moveTo(i, height * (1 - y));
+            } else {
+              gammactx.lineTo(i, height * (1 - y));
             }
           }
+          gammactx.stroke();
+        }
+
+        function drawGraph() {
+          // Clear entire canvas
+          ctx.clearRect(0, 0, graphCanvas.width, graphCanvas.height);
+
+          const now = Date.now();
+          const timeWindow = 20000; // e.g. 20s
+
+          // Reusable data-plot function
+          function plotData(dataArray, strokeStyle, minVal, maxVal) {
+            ctx.beginPath();
+            ctx.strokeStyle = strokeStyle;
+            let firstInRange = true;
+
+            dataArray.forEach((entry) => {
+              const timeDiff = now - entry.time;
+              const x =
+                graphCanvas.width - (timeDiff / timeWindow) * graphCanvas.width;
+              const y =
+                graphCanvas.height -
+                ((entry.value - minVal) / (maxVal - minVal)) *
+                  graphCanvas.height;
+
+              if (x >= 0) {
+                if (firstInRange) {
+                  ctx.moveTo(x, y);
+                  firstInRange = false;
+                } else {
+                  ctx.lineTo(x, y);
+                }
+              }
+            });
+            ctx.stroke();
+          }
+
+          // Lamp data: 0–255 range
+          plotData(lamp1Data, "red", 0, 255);
+          plotData(lamp2Data, "blue", 0, 255);
+
+          // Sensor data: dynamic scale
+          if (sensorData.length > 0) {
+            const minS = Math.min(...sensorData.map((s) => s.value));
+            const maxS = Math.max(...sensorData.map((s) => s.value));
+            const actualMax = maxS === minS ? minS + 1 : maxS; // avoid divide-by-zero
+            plotData(sensorData, "green", minS, actualMax);
+          }
+        }
+
+        /********************************************************
+         * 8) BUTTON LISTENERS (SAVE, RESET, ETC)
+         ********************************************************/
+        document.getElementById("saveButton").addEventListener("click", () => {
+          if (confirm("Overwrite the old config with these values?")) {
+            sendSerialLine("save_light_config");
+          }
         });
-        ctx.stroke();
-      }
+        document.getElementById("debugButton").addEventListener("click", () => {
+          sendSerialLine("log_level * debug");
+        });
+        document
+          .getElementById("debugOffButton")
+          .addEventListener("click", () => {
+            sendSerialLine("log_level * info");
+          });
+        document
+          .getElementById("reloadButton")
+          .addEventListener("click", () => {
+            if (confirm("Discard changes and reload last saved settings?")) {
+              sendSerialLine("reload_light_config");
+              getAllVariables();
+              appendToConsole("Reloaded saved settings.\n");
+            }
+          });
+        document.getElementById("resetButton").addEventListener("click", () => {
+          if (confirm("Reset all settings to factory defaults?")) {
+            sendSerialLine("reset_light_config");
+            getAllVariables();
+            appendToConsole("Factory defaults have been reset.\n");
+          }
+        });
+        // document
+        //   .getElementById("calibrationButton")
+        //   .addEventListener("click", () => {
+        //     sendSerialLine("start_calibration");
+        //   });
 
-      // Lamp data: 0–255 range
-      plotData(lamp1Data, "red", 0, 255);
-      plotData(lamp2Data, "blue", 0, 255);
+        /********************************************************
+         * 9) INITIALIZE / ON LOAD
+         ********************************************************/
+        // Re-size canvases on load + on window resize
+        window.addEventListener("load", resizeCanvases);
+        window.addEventListener("resize", resizeCanvases);
 
-      // Sensor data: dynamic scale
-      if (sensorData.length > 0) {
-        const minS = Math.min(...sensorData.map(s => s.value));
-        const maxS = Math.max(...sensorData.map(s => s.value));
-        const actualMax = maxS === minS ? minS + 1 : maxS; // avoid divide-by-zero
-        plotData(sensorData, "green", minS, actualMax);
-      }
-    }
-
-    /********************************************************
-     * 7) BEZIER EDITOR
-     ********************************************************/
-    let draggedIndex = null;
-    let changed = false;
-
-    bezierCanvas.addEventListener("mousedown", onBezierMouseDown);
-    bezierCanvas.addEventListener("mousemove", onBezierMouseMove);
-    bezierCanvas.addEventListener("mouseup", onBezierMouseUp);
-    bezierCanvas.addEventListener("mouseleave", onBezierMouseUp);
-
-    function onBezierMouseDown(e) {
-      const segmentWidth = bezierCanvas.width / repeat_n;
-      // offsetX/Y are in the canvas coordinate space (because we set the canvas width in JS).
-      const clickX = (e.offsetX % segmentWidth) / segmentWidth;
-      const clickY = e.offsetY / bezierCanvas.height;
-      const threshold = 0.1;
-
-      for (let i = 0; i < points.length; i++) {
-        // Try to account for mirrored references
-        const dx = Math.min(Math.abs(clickX - points[i].x), Math.abs((1 - clickX) - points[i].x));
-        const dy = Math.abs(clickY - points[i].y);
-        if (Math.sqrt(dx * dx + dy * dy) < threshold) {
-          draggedIndex = i;
-          break;
-        }
-      }
-    }
-
-    function onBezierMouseMove(e) {
-      if (draggedIndex !== null) {
-        changed = true;
-        const segmentWidth = bezierCanvas.width / repeat_n;
-        const normX = (e.offsetX % segmentWidth) / segmentWidth;
-        const normY = e.offsetY / bezierCanvas.height;
-
-        if (draggedIndex === 0) {
-          points[0].x = 0;
-          points[0].y = normY;
-        } else if (draggedIndex === points.length - 1) {
-          points[points.length - 1].x = 1;
-          points[points.length - 1].y = normY;
-        } else {
-          points[draggedIndex].x = Math.min(normX, 1 - normX); 
-          points[draggedIndex].y = normY;
-        }
-        drawBezierCurve();
-      }
-    }
-
-    function onBezierMouseUp() {
-      if (draggedIndex !== null && changed) {
-        sendBezierPoints();
-        changed = false;
-      }
-      draggedIndex = null;
-    }
-
-    // Buttons to add/remove points
-    document.getElementById("addBtn").addEventListener("click", () => {
-      if (points.length >= 2) {
-        const lastIndex = points.length - 1;
-        const secondLastIndex = points.length - 2;
-        const midX = (points[secondLastIndex].x + points[lastIndex].x) / 2;
-        const midY = (points[secondLastIndex].y + points[lastIndex].y) / 2;
-        points.splice(lastIndex, 0, { x: midX, y: midY });
-        sendBezierPoints();
-        drawBezierCurve();
-      }
-    });
-
-    document.getElementById("removeBtn").addEventListener("click", () => {
-      if (points.length > 2) {
-        points.splice(points.length - 2, 1);
-        sendBezierPoints();
-        drawBezierCurve();
-      }
-    });
-
-    // Actually draw the repeated + mirrored curve
-    function drawBezierCurve() {
-      bezierCtx.clearRect(0, 0, bezierCanvas.width, bezierCanvas.height);
-
-      for (let repeat = 0; repeat < repeat_n; repeat++) {
-        const offsetX = (bezierCanvas.width / repeat_n) * repeat;
-
-        // Convert [0..1] points to pixel space for each segment
-        const scaledPoints = points.map(pt => ({
-          x: pt.x * (bezierCanvas.width / repeat_n),
-          y: pt.y * bezierCanvas.height
-        }));
-
-        // Create mirrored version
-        const mirroredPoints = points.map(pt => ({
-          x: (1 - pt.x) * (bezierCanvas.width / repeat_n),
-          y: pt.y * bezierCanvas.height
-        }));
-
-        drawOneBezier(scaledPoints, offsetX);
-        drawOneBezier(mirroredPoints, offsetX);
-      }
-    }
-
-    // Draw a single set of points + control lines
-    function drawOneBezier(pts, offsetX) {
-      const n = pts.length - 1;
-      bezierCtx.beginPath();
-      bezierCtx.moveTo(pts[0].x + offsetX, pts[0].y);
-
-      const steps = 200;
-      for (let step = 1; step <= steps; step++) {
-        const t = step / steps;
-        let x = 0, y = 0;
-        for (let i = 0; i <= n; i++) {
-          const b = binomial(n, i) * Math.pow(1 - t, n - i) * Math.pow(t, i);
-          x += pts[i].x * b;
-          y += pts[i].y * b;
-        }
-        bezierCtx.lineTo(x + offsetX, y);
-      }
-      bezierCtx.strokeStyle = "black";
-      bezierCtx.lineWidth = 2;
-      bezierCtx.stroke();
-
-      // Dashed control lines
-      bezierCtx.beginPath();
-      bezierCtx.setLineDash([5, 3]);
-      bezierCtx.moveTo(pts[0].x + offsetX, pts[0].y);
-      for (let i = 1; i < pts.length; i++) {
-        bezierCtx.lineTo(pts[i].x + offsetX, pts[i].y);
-      }
-      bezierCtx.strokeStyle = "gray";
-      bezierCtx.lineWidth = 1;
-      bezierCtx.stroke();
-      bezierCtx.setLineDash([]);
-
-      // Draw control-point circles
-      for (let i = 0; i < pts.length; i++) {
-        bezierCtx.beginPath();
-        bezierCtx.arc(pts[i].x + offsetX, pts[i].y, 5, 0, 2 * Math.PI);
-        if (i === 0 || i === pts.length - 1) {
-          bezierCtx.fillStyle = "red";
-        } else {
-          bezierCtx.fillStyle = "blue";
-        }
-        bezierCtx.fill();
-      }
-    }
-
-    // Send points in “0.XX 0.XX 1.00 0.00 ...” format
-    function sendBezierPoints() {
-      const pointStr = points
-        .map(pt => `${pt.x.toFixed(2)} ${pt.y.toFixed(2)}`)
-        .join(" ");
-      sendVariableUpdate("bezier_points", pointStr);
-    }
-
-    /********************************************************
-     * 8) BUTTON LISTENERS (SAVE, RESET, ETC)
-     ********************************************************/
-    document.getElementById("saveButton").addEventListener("click", () => {
-      if (confirm("Overwrite the old config with these values?")) {
-        sendSerialLine("save_light_config");
-      }
-    });
-    document.getElementById("debugButton").addEventListener("click", () => {
-      sendSerialLine("log_level * debug");
-    });
-    document.getElementById("debugOffButton").addEventListener("click", () => {
-      sendSerialLine("log_level * info");
-    });
-    document.getElementById("reloadButton").addEventListener("click", () => {
-      if (confirm("Discard changes and reload last saved settings?")) {
-        sendSerialLine("reload_light_config");
-        getAllVariables();
-        appendToConsole("Reloaded saved settings.\n");
-      }
-    });
-    document.getElementById("resetButton").addEventListener("click", () => {
-      if (confirm("Reset all settings to factory defaults?")) {
-        sendSerialLine("reset_light_config");
-        getAllVariables();
-        appendToConsole("Factory defaults have been reset.\n");
-      }
-    });
-    document.getElementById("calibrationButton").addEventListener("click", () => {
-      sendSerialLine("start_calibration");
-    });
-
-    /********************************************************
-     * 9) INITIALIZE / ON LOAD
-     ********************************************************/
-    // Re-size canvases on load + on window resize
-    window.addEventListener("load", resizeCanvases);
-    window.addEventListener("resize", resizeCanvases);
-
-    // If you wish to draw initially (before connecting):
-    // Just do so here — but we rely on resizeCanvases() calls drawGraph() & drawBezierCurve().
-  })();
-  </script>
-</body>
+        // If you wish to draw initially (before connecting):
+        // Just do so here — but we rely on resizeCanvases() calls drawGraph() & drawBezierCurve().
+      })();
+    </script>
+  </body>
 </html>

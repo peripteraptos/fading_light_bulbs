@@ -16,12 +16,6 @@ static const char *TAG = "LIGHT_CONTROL";
 /* For demonstration, define two lights. */
 static light_fade_t lamp1_fade, lamp2_fade;
 
-brightness_step_t lamp1_steps[1024];
-brightness_step_t lamp2_steps[1024];
-
-/* Global flag to pause/resume fade. In actual projects, you might
- * keep one flag per lamp or store in the structure. */
-static bool g_fade_paused = false;
 
 /* Some simplified ZCL commands. You can unify them if you like. */
 void level_move(uint8_t mode, uint8_t rate, esp_zb_ieee_addr_t long_address)
@@ -101,191 +95,175 @@ void move_to_level(uint8_t level, uint16_t transition_time, esp_zb_ieee_addr_t l
     esp_zb_lock_release();
 }
 
-// Function to calculate binomial coefficient
-static double binomial_coefficient(unsigned int n, unsigned int k)
+
+
+
+double log_transform(double x, double B)
 {
-    double result = 1.0;
-    if (k > n - k)
-        k = n - k; // Take advantage of symmetry
-    for (unsigned int i = 0; i < k; i++)
+    // Safeguard: If B <= 0, the transform doesn't make sense as intended.
+    if (B <= 0.0)
     {
-        result *= (n - i);
-        result /= (i + 1);
+        // Return x unchanged or handle as an error
+        return x;
     }
-    return result;
+
+    // Safeguard: If x < 0, clamp to 0; if x > 1, clamp to 1.
+    if (x < 0.0)
+        x = 0.0;
+    if (x > 1.0)
+        x = 1.0;
+
+    // Compute denominator
+    double denom = log(1.0 + B);
+    // Compute numerator
+    double numerator = log(1.0 + B * x);
+
+    // Because x is in [0,1], numerator <= denom. So out in [0,1].
+    return numerator / denom;
 }
 
-static bezier_point_t cubic_bezier_2d(double t, bezier_point_t *ctrl, size_t n)
-{
-    bezier_point_t out = {0, 0};
-    if (n < 2)
-        return out; // or mark invalid
 
-    unsigned int degree = n - 1;
-    for (unsigned int i = 0; i <= degree; i++)
-    {
-        double binom = binomial_coefficient(degree, i);
-        double bernstein = binom * pow(1 - t, degree - i) * pow(t, i);
-        out.x += ctrl[i].x * bernstein;
-        out.y += ctrl[i].y * bernstein;
-    }
-    return out;
-}
 
-// We want to solve X(t) = desired_x in [0..1].
-// We'll do a simple binary search or Newton's method for t in [0..1].
-static double invert_bezier_x(double desired_x,
-                              const bezier_point_t *ctrl,
-                              size_t n,
-                              double epsilon)
+
+static void build_gamma_fade_table(int segments, light_fade_t *light_fade, fade_segment_t *fade_table)
 {
-    double low = 0.0;
-    double high = 1.0;
-    while (high - low > epsilon)
+
+    for (int i = 0; i < segments; i++)
     {
-        double mid = 0.5 * (low + high);
-        double xm = cubic_bezier_2d(mid, ctrl, n).x;
-        if (xm < desired_x)
-        {
-            low = mid;
+        // Calculate fraction based on linear index
+        float fraction = (float)i / (float)(segments - 1);
+        if(g_light_config.curve_type == CURVE_TYPE_SINE){
+            // Use sinusoidal function to calculate fraction
+            fraction = 0.5f * (1.0f - cosf(fraction * (float)M_PI));
         }
-        else
+
+        uint8_t abs_max_level = 255;
+
+        uint8_t min_level = g_light_config.level_min;
+        uint8_t max_level = g_light_config.level_max;
+
+        fraction *= abs_max_level / (max_level - min_level);
+        fraction += g_light_config.level_min / abs_max_level;
+
+        // Apply gamma correction
+        float corrected = fraction;
+
+        if (g_light_config.gamma_mode == GAMMA_MODE_EXPONENTIAL)
         {
-            high = mid;
+            float scale = g_light_config.gamma_pow_scale;
+            float value = g_light_config.gamma_pow_value;
+            if (value == 0)
+                value = 1;
+
+            corrected = scale * pow(fraction, 1 / value) - scale + 1; // 0..1
+            // corrected = pow(fraction, 1/value);
         }
+        else if (g_light_config.gamma_mode == GAMMA_MODE_LOGARITHMIC)
+        {
+            corrected = log_transform(fraction, g_light_config.gamma_log_value);
+        }
+
+        // Then map to 8-bit level [min_level..max_level]
+        float level_f = min_level + (max_level - min_level) * corrected;
+        if (level_f > max_level)
+            level_f = max_level; // clamp
+        if (level_f < min_level)
+            level_f = min_level;
+
+        fade_table[i].fraction_of_fade = (float)i / (float)(segments - 1);
+        fade_table[i].level = (uint8_t)roundf(level_f);
     }
-    return 0.5 * (low + high);
-}
-double brightness_at_fraction(double fraction)
-{
-    double param = invert_bezier_x(fraction, g_bezier_points, g_num_bezier_points, 1e-5);
-    bezier_point_t p = cubic_bezier_2d(param, g_bezier_points, g_num_bezier_points);
-    return p.y; // That is our brightness
 }
 
-double brightness(double t)
+static void do_piecewise_fade_blocking(light_fade_t *light_fade,
+                                       fade_segment_t *segments,
+                                       int segment_count,
+                                       float total_fade_s)
 {
-    // Normalize t to the cycle duration
-    double cycle_s = g_light_config.transition_time * 2 + (g_light_config.on_time + g_light_config.off_time) * g_light_config.transition_time;
-    double normalized_t = fmod(t, cycle_s) / cycle_s;
-
-    // Adjust the normalized_t to create a back-and-forth effect
-    if (normalized_t > 0.5)
+    for (int dir = 0; dir < 2; dir++) // Two directions: up and down
     {
-        normalized_t = 1.0 - normalized_t; // Reverse direction in the second half of the cycle
+        int start = (dir == 0) ? 0 : segment_count - 1;
+        int end = (dir == 0) ? segment_count - 1 : 0;
+        int step = (dir == 0) ? 1 : -1;
+
+        // Iterate through the segments based on direction
+        for (int i = start; (dir == 0 ? i < end : i > end); i += step)
+        {
+            float fraction_start = segments[i].fraction_of_fade;
+            float fraction_end = segments[i + step].fraction_of_fade;
+
+            // How long this piece of the fade should take
+            float seg_duration_s = fabsf(fraction_end - fraction_start) * total_fade_s;
+            // The final level for the next segment
+            uint8_t target_level = segments[i + step].level;
+
+            // Zigbee transition_time is in 1/10ths of a second
+            uint16_t transition_time_1_10s = (uint16_t)(seg_duration_s * 10.0f);
+
+            ESP_LOGI("FADE", "Segment %d->%d: fraction %.2f->%.2f, level %d->%d, seg_duration=%.2fs",
+                     i, i + step,
+                     fraction_start, fraction_end,
+                     segments[i].level, target_level,
+                     seg_duration_s);
+
+            ESP_LOGI(TAG, "Setting Lamp%d to %d within %dms",
+                     light_fade->id, target_level, (int)(seg_duration_s * 1000));
+
+            // Send the command
+            move_to_level(target_level, transition_time_1_10s, light_fade->address);
+
+            // Block the task until this segment is done
+            vTaskDelay(pdMS_TO_TICKS((int)(seg_duration_s * 1000)));
+        }
+
+        // Wait at the end of the segment traversal
+        float wait_time = (dir == 0) ? g_light_config.on_time : g_light_config.off_time;
+        wait_time = wait_time * g_light_config.transition_time;
+        ESP_LOGI(TAG, "Lamp%d waiting for %.2fs", light_fade->id, wait_time);
+
+        vTaskDelay(pdMS_TO_TICKS((int)(wait_time * 1000)));
     }
-    normalized_t *= 2.0; // Scale to maintain full range (0 to 1)
-
-    // Calculate brightness level based on the cubic Bezier curve
-    double normalized_brightness = brightness_at_fraction(normalized_t);
-
-    if (normalized_brightness < 0)
-        normalized_brightness = 0;
-    if (normalized_brightness > 1)
-        normalized_brightness = 1;
-
-    // Denormalize the brightness to a scale of 0 to 255
-    //double denormalized_brightness = normalized_brightness * 254.0;
-
-    // Return the denormalized brightness level as a double
-    return normalized_brightness;
 }
-
-
-uint8_t get_inverse_lut_interpolated(float desired01)
-{
-    // clamp
-    if (desired01 < 0.0f) desired01 = 0.0f;
-    if (desired01 > 1.0f) desired01 = 1.0f;
-
-    float indexFloat = desired01 * 255.0f;     // e.g. 0..255
-    int indexLow = (int)floorf(indexFloat);    
-    int indexHigh = indexLow + 1;
-    if (indexHigh > 255) indexHigh = 255;
-
-    float frac = indexFloat - (float)indexLow; // in [0..1)
-
-    // LUT values (these are the recommended commands for each discrete desired brightness)
-    uint8_t cmdLow  = g_inverseLUT[indexLow];
-    uint8_t cmdHigh = g_inverseLUT[indexHigh];
-
-    // linear interpolation in float
-    float cmdF = (1.0f - frac) * cmdLow + frac * cmdHigh;
-
-    // round
-    uint8_t cmd = (uint8_t)(cmdF + 0.5f);
-    return cmd;
-}
-
 
 static void light_fade_rtos_task(void *pvParameters)
 {
 
     light_fade_t *light_fade = (light_fade_t *)pvParameters;
 
-    uint16_t step_ms = 200; // Convert steptime from the config to milliseconds
+    // You can tweak gamma, # of segments, etc.
+    static fade_segment_t fade_table[MAX_SEGMENTS];
 
-    double transition_s = g_light_config.transition_time;
-    double on_s = transition_s * g_light_config.on_time;
-    double off_s = transition_s * g_light_config.off_time;
-    double cycle_s = (2 * transition_s) + on_s + off_s;
-    double offset_s = cycle_s * light_fade->offset;
-    double t = 0;
-    uint8_t prev_level = 0; // Track the previous level
+    int segments = g_light_config.step_table_size;
+    build_gamma_fade_table(segments, light_fade, fade_table);
+
+    ESP_LOGI("FADE", "Fade Table:");
+    for (int i = 0; i < segments; i++)
+    {
+        ESP_LOGI("FADE", "Segment %d: Fraction: %.2f, Level: %d",
+                 i, fade_table[i].fraction_of_fade, fade_table[i].level);
+    }
+
+    // Calculate the cycle time using transition_time, on_time and off_time
+    float total_transition_time_s = g_light_config.transition_time * 2;
+    // Calculate on_time and off_time as fractions of transition_time
+    float on_time_s = g_light_config.on_time * g_light_config.transition_time;
+    float off_time_s = g_light_config.off_time * g_light_config.transition_time;
+
+    // Calculate the cycle time using transition_time, on_time, and off_time
+    float cycle_time_s = total_transition_time_s + on_time_s + off_time_s;
+    vTaskDelay(light_fade->offset * cycle_time_s * 1000 / portTICK_PERIOD_MS);
 
     while (1)
     {
-        if (!g_fade_paused)
-        {
+        // 1) Build table with, say, 8 segments from level=0 to level=200
+        // 2) Suppose total fade is 10 seconds
 
-            double current_brightness = brightness(t + offset_s);
-            uint8_t interpolated_brightness = get_inverse_lut_interpolated(current_brightness);
+        // 3) Block and do piecewise fade on lamp1
+        do_piecewise_fade_blocking(light_fade, fade_table, segments, g_light_config.transition_time);
 
-            //uint8_t next_level = (uint8_t)round(current_brightness);
-
-            ESP_LOGI(TAG, "Setting Lamp%d to %d within %dms",
-                     light_fade->id, interpolated_brightness, step_ms);
-
-            if (g_light_config.dimming_strategy == DIMMING_STRATEGY_MOVE_TO_LEVEL_WITH_OFF_OFF)
-            {
-                move_to_level_with_onoff(interpolated_brightness, (uint16_t)step_ms / 100, light_fade->address);
-            }
-            else if (g_light_config.dimming_strategy == DIMMING_STRATEGY_MOVE_TO_LEVEL)
-            {
-                move_to_level(interpolated_brightness, (uint16_t)step_ms / 100, light_fade->address);
-            }
-            // else if (g_light_config.dimming_strategy == DIMMING_STRATEGY_LEVEL_MOVE)
-            // {
-            //     uint8_t mode = (next_level > prev_level) ? 1 : 0;
-            //     uint8_t rate = (uint8_t)abs(next_level - prev_level) / (step_ms / 100); // Simplified rate calculation
-
-            //     level_move(mode, rate, light_fade->address);
-            // }
-            // else if (g_light_config.dimming_strategy == DIMMING_STRATEGY_LEVEL_MOVE_WITH_ON_OFF)
-            // {
-            //     uint8_t mode = (next_level > prev_level) ? 1 : 0;
-            //     uint8_t rate = (uint8_t)abs(next_level - prev_level) / (step_ms / 100); // Simplified rate calculation
-
-            //     level_move_with_onoff(mode, rate, light_fade->address);
-            // }
-
-            // Step time delay to apply brightness changes in intervals
-            vTaskDelay(step_ms / portTICK_PERIOD_MS);
-
-            if (t > cycle_s)
-                t = t - cycle_s;
-            ;
-            // Increment time based on step_ms
-            t += step_ms / 1000.0; // convert ms to seconds
-
-            // Update prev_level to track the last brightness set
-            prev_level = interpolated_brightness;
-        }
-        else
-        {
-            // If paused, just delay a bit
-            vTaskDelay(100 / portTICK_PERIOD_MS);
-        }
+        // 4) Optionally do the same for lamp2
+        // do_piecewise_fade_blocking(lamp2_fade.address, s_fade_table, segments, total_fade_s);
+        ESP_LOGI("FADE", "Gamma fade complete");
     }
 }
 

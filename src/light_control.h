@@ -2,6 +2,10 @@
 
 #include <stdbool.h>
 #include "zigbee_main.h"
+#include <math.h>
+#include <stdint.h>
+
+#define MAX_SEGMENTS 255
 
 /**
  * @brief Enum to define dimming modes.
@@ -18,18 +22,25 @@ typedef enum {
     DIMMING_STRATEGY_LEVEL_MOVE
 } dimming_strategy_t;
 
+typedef struct {
+    float fraction_of_fade;   // e.g. 0.0, 0.25, 0.5, 0.75, 1.0
+    uint8_t level;           // the 8-bit Zigbee level for that fraction
+} fade_segment_t;
+
 
 typedef enum {
     GAMMA_MODE_LINEAR,
     GAMMA_MODE_EXPONENTIAL,
-    GAMMA_MODE_POLYNOMIAL
+    GAMMA_MODE_LOGARITHMIC
 } gamma_mode_t;
 
-
-typedef struct {
-    double time;
-    int brightness;
-} brightness_step_t;
+typedef enum {
+    CURVE_TYPE_LINEAR,
+    CURVE_TYPE_SINE,
+    CURVE_TYPE_QUADRATIC,
+    CURVE_TYPE_CUBIC,
+    CURVE_TYPE_QUARTIC
+} curve_type_t;
 
 /**
  * @brief Basic structure to hold fade parameters for a single light.
@@ -39,6 +50,7 @@ typedef struct {
     uint8_t id;
     double offset;
     TaskHandle_t task_handle;
+    fade_segment_t * fade_table;
 } light_fade_t;
 
 /**
