@@ -8,7 +8,6 @@
 #include "zigbee_main.h"
 #include "light_control.h"
 #include "console_cmd.h"
-#include "calibration.h"
 #include "light_sensor.h"
 
 #include "linenoise/linenoise.h"
@@ -76,12 +75,6 @@ void app_main() {
     // Optionally, you can start the default fade tasks right away:
     lights_init();
 
-
     // Send config over serial
     cmd_get_config(0, NULL);
-
-
-    start_light_sensor_task();
-
-    // Done! The rest runs in tasks (ZB task, console REPL, etc.).
 }

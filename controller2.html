@@ -19,7 +19,6 @@
       }
 
       #console {
-        width: 100%;
         height: 200px;
         margin-top: 10px;
         border: 1px solid #ccc;
@@ -54,7 +53,7 @@
       .controlContainer {
         display: grid;
         gap: 1em;
-        grid-template-columns: 2fr 1fr;
+        grid-template-columns: 2fr 0.7fr;
       }
 
       .controlCanvasContainer {
@@ -65,13 +64,35 @@
       .controlCanvasContainer > canvas {
         /* width: 100%; */
       }
+
+      #savedConfigurations {
+        border: 1px solid #ccc;
+        display: flex;
+        flex-direction: column;
+        padding: 0.5rem;
+      }
+
+      .doublebutton {
+        display: grid;
+        grid-template-columns: 1fr 1fr;
+        gap: 1rem;
+      }
+
+      .consoleButtons,
+      .connectButtons {
+        display: flex;
+        gap: 1rem;
+        margin-top: 1rem;
+      }
     </style>
   </head>
   <body>
     <h1>ESP WebSerial Control</h1>
 
-    <button id="connectButton">Connect</button>
-
+    <div class="connectButtons">
+      <button id="connectButton">Connect</button>
+      <button id="disconnectButton">Disconnect</button>
+    </div>
     <div style="display: flex">
       <div id="canvasContainer">
         <canvas id="graphCanvas"></canvas>
@@ -79,7 +100,17 @@
     </div>
 
     <div class="controlContainer">
-      <div id="fadersContainer"></div>
+      <div>
+        <div id="fadersContainer"></div>
+
+        <div id="console"></div>
+        <div class="consoleButtons">
+          <button id="debugButton">Debug on</button>
+          <button id="debugOffButton">Debug off</button>
+          <button id="sensorOnButton">Sensor on</button>
+          <button id="sensorOffButton">Sensor off</button>
+        </div>
+      </div>
       <div class="buttonContainer">
         <div class="controlCanvasContainer">
           <canvas id="curveCanvas"></canvas>
@@ -87,18 +118,19 @@
         <div class="controlCanvasContainer">
           <canvas id="gammaCanvas"></canvas>
         </div>
-        <button id="debugButton">Debug on</button>
-        <button id="debugOffButton">Debug off</button>
-        <button id="saveButton">Save</button>
-        <button id="reloadButton">
-          Discard changes (reload saved settings)
-        </button>
+
+        <div class="doublebutton">
+          <button id="saveButton">Save</button>
+          <button id="reloadButton">Discard changes</button>
+        </div>
         <button id="resetButton">Reset to factory defaults</button>
-        <button id="calibrationButton">Start LUT Calibration</button>
+        <!-- <button id="calibrationButton">Start LUT Calibration</button> -->
+        <button id="saveInBrowserButton">Save in Browser</button>
+
+        <label>Saved configs (in browser)</label>
+        <div id="savedConfigurations"></div>
       </div>
     </div>
-
-    <div id="console"></div>
 
     <script>
       (() => {
@@ -143,15 +175,15 @@
               { value: "0", text: "Linear" },
               { value: "1", text: "Sine" },
             ],
-            value: "sin",
+            value: "1",
           },
-          
+
           {
             id: "level_min",
             label: "Level Min:",
             type: "range",
             min: 0,
-            max: 254,
+            max: 255,
             value: 0,
           },
           {
@@ -159,28 +191,28 @@
             label: "Level Max:",
             type: "range",
             min: 0,
-            max: 254,
+            max: 255,
             value: 250,
           },
-          {
-            id: "offset_1",
-            label: "Offset 1:",
-            type: "range",
-            min: 0,
-            max: 1,
-            step: 0.01,
-            value: 0,
-            suffix: "% of cycle time",
-          },
+          // {
+          //   id: "offset_1",
+          //   label: "Offset 1:",
+          //   type: "range",
+          //   min: 0,
+          //   max: 1,
+          //   step: 0.01,
+          //   value: 0,
+          //   suffix: "% of cycle time",
+          // },
           {
             id: "offset_2",
-            label: "Offset 2:",
+            label: "Offset:",
             type: "range",
             min: 0,
             max: 1,
             step: 0.01,
             value: 0.5,
-            suffix: "% of cycle time",
+            suffix: "% of whole cycle",
           },
           {
             id: "transition_time",
@@ -356,7 +388,7 @@
           control.id = `${config.id}Control`;
           const valueSpan = document.createElement("span");
           valueSpan.id = `${config.id}Value`;
-          valueSpan.textContent = config.value;
+          valueSpan.textContent = parseFloat(config.value);
 
           // Send updates on user input
           control.addEventListener("input", () => {
@@ -372,7 +404,7 @@
 
           if (config.suffix && config.type === "range") {
             const suffixSpan = document.createElement("span");
-            suffixSpan.textContent = ` ${config.suffix}`;
+            suffixSpan.textContent = `${config.suffix}`;
             container.appendChild(suffixSpan);
           }
           fadersContainer.appendChild(container);
@@ -387,7 +419,8 @@
         const connectButton = document.getElementById("connectButton");
         connectButton.addEventListener("click", async () => {
           await connectToSerial();
-          getAllVariables();
+          await getAllVariables();
+          await startSensor();
         });
 
         async function connectToSerial() {
@@ -485,7 +518,7 @@
           const ctl = document.getElementById(varName + "Control");
           const valSpan = document.getElementById(varName + "Value");
           if (ctl) ctl.value = varValue;
-          if (valSpan) valSpan.textContent = varValue;
+          if (valSpan) valSpan.textContent = parseFloat(varValue);
         }
 
         const sendSerialLine = debounce(async function (line) {
@@ -501,7 +534,11 @@
         }
 
         function getAllVariables() {
-          sendSerialLine("get");
+          return sendSerialLine("get");
+        }
+
+        function startSensor() {
+          setTimeout(() => sendSerialLine("start_sensor"), 300);
         }
 
         /********************************************************
@@ -537,7 +574,7 @@
           // Determine if the curve to be drawn is a sine curve or a linear one based on the selection
           const curveTypeControl = document.getElementById("curve_typeControl");
           const drawSinCurve = curveTypeControl
-            ? curveTypeControl.value === "sin"
+            ? curveTypeControl.value === "1"
             : false;
 
           curvectx.beginPath();
@@ -547,10 +584,10 @@
           const levelMaxControl = document.getElementById("level_maxControl");
 
           const normalizedMinY = levelMinControl
-            ? levelMinControl.value / 254
+            ? levelMinControl.value / 255
             : 0.0;
           const normalizedMaxY = levelMaxControl
-            ? levelMaxControl.value / 254
+            ? levelMaxControl.value / 255
             : 1;
           if (drawSinCurve) {
             for (let i = 0; i <= width; i++) {
@@ -562,7 +599,8 @@
               const segments = width; // Assuming width as the number of segments
               let fraction = i / (segments - 1);
               fraction = 0.5 * (1.0 - Math.cos(fraction * Math.PI));
-              const y =   (fraction*(normalizedMaxY-normalizedMinY))+normalizedMinY;
+              const y =
+                fraction * (normalizedMaxY - normalizedMinY) + normalizedMinY;
               if (i === 0) {
                 curvectx.moveTo(i, height * (1 - y));
               } else {
@@ -570,8 +608,8 @@
               }
             }
           } else {
-            curvectx.moveTo(0, (1-normalizedMinY)*height);
-            curvectx.lineTo(width, (1-normalizedMaxY)*height);
+            curvectx.moveTo(0, (1 - normalizedMinY) * height);
+            curvectx.lineTo(width, (1 - normalizedMaxY) * height);
           }
           curvectx.stroke();
         }
@@ -695,17 +733,28 @@
           .addEventListener("click", () => {
             if (confirm("Discard changes and reload last saved settings?")) {
               sendSerialLine("reload_light_config");
-              getAllVariables();
               appendToConsole("Reloaded saved settings.\n");
             }
           });
         document.getElementById("resetButton").addEventListener("click", () => {
           if (confirm("Reset all settings to factory defaults?")) {
             sendSerialLine("reset_light_config");
-            getAllVariables();
             appendToConsole("Factory defaults have been reset.\n");
           }
         });
+
+        document
+          .getElementById("sensorOnButton")
+          .addEventListener("click", () => {
+            sendSerialLine("start_sensor");
+            appendToConsole("Sensor turned on.\n");
+          });
+        document
+          .getElementById("sensorOffButton")
+          .addEventListener("click", () => {
+            sendSerialLine("stop_sensor");
+            appendToConsole("Sensor turned off.\n");
+          });
         // document
         //   .getElementById("calibrationButton")
         //   .addEventListener("click", () => {
@@ -718,6 +767,116 @@
         // Re-size canvases on load + on window resize
         window.addEventListener("load", resizeCanvases);
         window.addEventListener("resize", resizeCanvases);
+
+        // Save configurations to local storage with a specific name
+        function saveConfigurationsToLocalSettings(name) {
+          const configurations = { name: name };
+          faderConfigs.forEach((config) => {
+            const control = document.getElementById(`${config.id}Control`);
+            if (control) {
+              configurations[config.id] = control.value;
+            }
+          });
+
+          let storedConfigs =
+            JSON.parse(localStorage.getItem("localSettings")) || [];
+          storedConfigs.push(configurations);
+          localStorage.setItem("localSettings", JSON.stringify(storedConfigs));
+          appendToConsole(`Configurations saved as "${name}".\n`);
+          updateConfigurationsList();
+        }
+
+        // Load configurations by index from local storage
+        function loadConfigurationsFromLocalSettings(index) {
+          const storedConfigs = JSON.parse(
+            localStorage.getItem("localSettings")
+          );
+          if (storedConfigs && storedConfigs[index]) {
+            const configurations = storedConfigs[index];
+            faderConfigs.forEach((config) => {
+              const control = document.getElementById(`${config.id}Control`);
+              const valueSpan = document.getElementById(`${config.id}Value`);
+              if (control && configurations[config.id] !== undefined) {
+                control.value = configurations[config.id];
+                if (valueSpan)
+                  valueSpan.textContent = configurations[config.id];
+                sendVariableUpdate(config.id, configurations[config.id]);
+              }
+            });
+            appendToConsole(
+              `Configurations "${configurations.name}" loaded from local settings.\n`
+            );
+          } else {
+            appendToConsole("No configurations found in local settings.\n");
+          }
+        }
+
+        // Update configurations list with delete functionality
+        function updateConfigurationsList() {
+          const configurationsContainer = document.getElementById(
+            "savedConfigurations"
+          );
+          configurationsContainer.innerHTML = ""; // Clear the list
+
+          let storedConfigs =
+            JSON.parse(localStorage.getItem("localSettings")) || [];
+          if (!Array.isArray(storedConfigs))
+            localStorage.setItem("localSettings", "[]");
+          storedConfigs.forEach((config, index) => {
+            const configContainer = document.createElement("div");
+            configContainer.style.display = "flex";
+            configContainer.style.alignItems = "center";
+            configContainer.style.justifyContent = "space-between";
+            configContainer.style.marginBottom = "10px";
+
+            const loadButton = document.createElement("button");
+            loadButton.textContent =
+              "Load " + config.name || `Load Configuration ${index + 1}`;
+            loadButton.addEventListener("click", () =>
+              loadConfigurationsFromLocalSettings(index)
+            );
+
+            const deleteButton = document.createElement("button");
+            deleteButton.textContent = "Delete";
+            deleteButton.style.marginLeft = "10px";
+            deleteButton.style.opacity = "0.6";
+            deleteButton.addEventListener("click", () => {
+              if (
+                confirm(`Are you sure you want to delete "${config.name}"?`)
+              ) {
+                storedConfigs.splice(index, 1);
+                localStorage.setItem(
+                  "localSettings",
+                  JSON.stringify(storedConfigs)
+                );
+                updateConfigurationsList();
+                appendToConsole(`Configuration "${config.name}" deleted.\n`);
+              }
+            });
+
+            configContainer.appendChild(loadButton);
+            configContainer.appendChild(deleteButton);
+            configurationsContainer.appendChild(configContainer);
+          });
+        }
+
+        // Initialize configurations list on load
+        document.addEventListener("DOMContentLoaded", () => {
+          updateConfigurationsList();
+        });
+
+        // Prompt for a name when saving a configuration
+        document
+          .getElementById("saveInBrowserButton")
+          .addEventListener("click", () => {
+            const name = prompt("Enter a name for your configuration:");
+            if (name) {
+              saveConfigurationsToLocalSettings(name);
+            }
+          });
+
+        // Initialize configurations list
+        updateConfigurationsList();
 
         // If you wish to draw initially (before connecting):
         // Just do so here — but we rely on resizeCanvases() calls drawGraph() & drawBezierCurve().

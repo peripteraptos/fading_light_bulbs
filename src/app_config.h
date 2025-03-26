@@ -29,13 +29,9 @@ typedef struct {
 
 } light_config_t;
 
-extern uint8_t g_inverseLUT[256];
-
 extern light_config_t g_light_config;
 extern light_config_t g_light_config_default;
 extern esp_zb_ieee_addr_t lamp1_long_address, lamp2_long_address;
-
-
 
 #define NVS_NAMESPACE "storage"
 #define NVS_KEY "light_config"

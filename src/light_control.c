@@ -9,92 +9,12 @@
 #include "zigbee_main.h"
 #include <math.h>
 #include "stdlib.h"
-#include <limits.h> // for std::numeric_limits<double>::quiet_NaN()
+#include "light_helper.h"
 
 static const char *TAG = "LIGHT_CONTROL";
 
 /* For demonstration, define two lights. */
 static light_fade_t lamp1_fade, lamp2_fade;
-
-
-/* Some simplified ZCL commands. You can unify them if you like. */
-void level_move(uint8_t mode, uint8_t rate, esp_zb_ieee_addr_t long_address)
-{
-    esp_zb_zcl_level_move_cmd_t cmd_move = {0};
-    cmd_move.zcl_basic_cmd.src_endpoint = 1;
-    cmd_move.zcl_basic_cmd.dst_endpoint = 1;
-    cmd_move.address_mode = ESP_ZB_APS_ADDR_MODE_64_ENDP_PRESENT;
-    memcpy(cmd_move.zcl_basic_cmd.dst_addr_u.addr_long, long_address, sizeof(esp_zb_ieee_addr_t));
-    cmd_move.move_mode = mode;
-    cmd_move.rate = rate;
-
-    esp_zb_lock_acquire(portMAX_DELAY);
-    esp_zb_zcl_level_move_cmd_req(&cmd_move);
-    esp_zb_lock_release();
-}
-
-/* Some simplified ZCL commands. You can unify them if you like. */
-void level_move_with_onoff(uint8_t mode, uint8_t rate, esp_zb_ieee_addr_t long_address)
-{
-    esp_zb_zcl_level_move_cmd_t cmd_move = {0};
-    cmd_move.zcl_basic_cmd.src_endpoint = 1;
-    cmd_move.zcl_basic_cmd.dst_endpoint = 1;
-    cmd_move.address_mode = ESP_ZB_APS_ADDR_MODE_64_ENDP_PRESENT;
-    memcpy(cmd_move.zcl_basic_cmd.dst_addr_u.addr_long, long_address, sizeof(esp_zb_ieee_addr_t));
-    cmd_move.move_mode = mode;
-    cmd_move.rate = rate;
-
-    esp_zb_lock_acquire(portMAX_DELAY);
-    esp_zb_zcl_level_move_with_onoff_cmd_req(&cmd_move);
-    esp_zb_lock_release();
-}
-void level_stop(esp_zb_ieee_addr_t long_address)
-{
-    esp_zb_zcl_level_stop_cmd_t cmd_stop = {0};
-    cmd_stop.zcl_basic_cmd.src_endpoint = 1;
-    cmd_stop.zcl_basic_cmd.dst_endpoint = 1;
-    cmd_stop.address_mode = ESP_ZB_APS_ADDR_MODE_64_ENDP_PRESENT;
-    memcpy(cmd_stop.zcl_basic_cmd.dst_addr_u.addr_long, long_address, sizeof(esp_zb_ieee_addr_t));
-
-    esp_zb_lock_acquire(portMAX_DELAY);
-    esp_zb_zcl_level_stop_cmd_req(&cmd_stop);
-    esp_zb_lock_release();
-}
-
-void move_to_level_with_onoff(uint8_t level, uint16_t transition_time, esp_zb_ieee_addr_t long_address)
-{
-    esp_zb_zcl_move_to_level_cmd_t cmd_move_to = {0};
-    cmd_move_to.zcl_basic_cmd.src_endpoint = 1;
-    cmd_move_to.zcl_basic_cmd.dst_endpoint = 1;
-    cmd_move_to.address_mode = ESP_ZB_APS_ADDR_MODE_64_ENDP_PRESENT;
-    memcpy(cmd_move_to.zcl_basic_cmd.dst_addr_u.addr_long, long_address, sizeof(esp_zb_ieee_addr_t));
-    cmd_move_to.level = level;
-    cmd_move_to.transition_time = transition_time;
-
-    esp_zb_lock_acquire(portMAX_DELAY);
-    esp_zb_zcl_level_move_to_level_with_onoff_cmd_req(&cmd_move_to);
-    esp_zb_lock_release();
-}
-
-void move_to_level(uint8_t level, uint16_t transition_time, esp_zb_ieee_addr_t long_address)
-{
-    esp_zb_zcl_move_to_level_cmd_t cmd_move_to = {0};
-    cmd_move_to.zcl_basic_cmd.src_endpoint = 1;
-    cmd_move_to.zcl_basic_cmd.dst_endpoint = 1;
-    cmd_move_to.address_mode = ESP_ZB_APS_ADDR_MODE_64_ENDP_PRESENT;
-    memcpy(cmd_move_to.zcl_basic_cmd.dst_addr_u.addr_long, long_address, sizeof(esp_zb_ieee_addr_t));
-    cmd_move_to.level = level;
-    cmd_move_to.transition_time = transition_time;
-
-    ESP_LOGD(TAG, "To level %d with transition time %dms for address %02x:%02x:%02x:%02x:%02x:%02x:%02x:%02x",
-             level, transition_time,
-             long_address[0], long_address[1], long_address[2], long_address[3],
-             long_address[4], long_address[5], long_address[6], long_address[7]);
-    esp_zb_lock_acquire(portMAX_DELAY);
-    esp_zb_zcl_level_move_to_level_cmd_req(&cmd_move_to);
-    esp_zb_lock_release();
-}
-
 
 
 
@@ -132,6 +52,7 @@ static void build_gamma_fade_table(int segments, light_fade_t *light_fade, fade_
     {
         // Calculate fraction based on linear index
         float fraction = (float)i / (float)(segments - 1);
+        
         if(g_light_config.curve_type == CURVE_TYPE_SINE){
             // Use sinusoidal function to calculate fraction
             fraction = 0.5f * (1.0f - cosf(fraction * (float)M_PI));
@@ -200,7 +121,7 @@ static void do_piecewise_fade_blocking(light_fade_t *light_fade,
             // Zigbee transition_time is in 1/10ths of a second
             uint16_t transition_time_1_10s = (uint16_t)(seg_duration_s * 10.0f);
 
-            ESP_LOGI("FADE", "Segment %d->%d: fraction %.2f->%.2f, level %d->%d, seg_duration=%.2fs",
+            ESP_LOGD("FADE", "Segment %d->%d: fraction %.2f->%.2f, level %d->%d, seg_duration=%.2fs",
                      i, i + step,
                      fraction_start, fraction_end,
                      segments[i].level, target_level,
@@ -236,13 +157,6 @@ static void light_fade_rtos_task(void *pvParameters)
     int segments = g_light_config.step_table_size;
     build_gamma_fade_table(segments, light_fade, fade_table);
 
-    ESP_LOGI("FADE", "Fade Table:");
-    for (int i = 0; i < segments; i++)
-    {
-        ESP_LOGI("FADE", "Segment %d: Fraction: %.2f, Level: %d",
-                 i, fade_table[i].fraction_of_fade, fade_table[i].level);
-    }
-
     // Calculate the cycle time using transition_time, on_time and off_time
     float total_transition_time_s = g_light_config.transition_time * 2;
     // Calculate on_time and off_time as fractions of transition_time
@@ -255,14 +169,8 @@ static void light_fade_rtos_task(void *pvParameters)
 
     while (1)
     {
-        // 1) Build table with, say, 8 segments from level=0 to level=200
-        // 2) Suppose total fade is 10 seconds
-
-        // 3) Block and do piecewise fade on lamp1
         do_piecewise_fade_blocking(light_fade, fade_table, segments, g_light_config.transition_time);
 
-        // 4) Optionally do the same for lamp2
-        // do_piecewise_fade_blocking(lamp2_fade.address, s_fade_table, segments, total_fade_s);
         ESP_LOGI("FADE", "Gamma fade complete");
     }
 }
@@ -294,8 +202,6 @@ void lights_init(void)
     // Move both to some safe level first
     move_to_level_with_onoff(10, 0, lamp1_fade.address);
     move_to_level_with_onoff(10, 0, lamp2_fade.address);
-    level_stop(lamp1_fade.address);
-    level_stop(lamp2_fade.address);
 
     // Start tasks
     xTaskCreate(light_fade_rtos_task,
@@ -328,7 +234,4 @@ void lights_stop(void)
         vTaskDelete(lamp2_fade.task_handle);
         lamp2_fade.task_handle = NULL;
     }
-
-    // Optionally set them to a default level
-    // ...
 }

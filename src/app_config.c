@@ -8,44 +8,24 @@
 esp_zb_ieee_addr_t lamp1_long_address = {0x5d, 0x23, 0x38, 0xfe, 0xff, 0xf8, 0xe2, 0x44};
 esp_zb_ieee_addr_t lamp2_long_address = {0xd0, 0x46, 0x3a, 0xfe, 0xff, 0xf8, 0xe2, 0x44};
 
-uint8_t g_gamma_lookup_table[256] = {
-    0,   0,   0,   0,   0,   0,   0,   0,   0,   0,   0,   0,   1,   1,   1,   1,
-    1,   1,   1,   1,   2,   2,   2,   2,   2,   2,   3,   3,   3,   3,   4,   4,
-    4,   4,   5,   5,   5,   5,   6,   6,   6,   7,   7,   7,   8,   8,   8,   9,
-    9,   9,  10,  10,  11,  11,  11,  12,  12,  13,  13,  14,  14,  15,  15,  16,
-   16,  17,  17,  18,  18,  19,  19,  20,  20,  21,  21,  22,  23,  23,  24,  24,
-   25,  26,  26,  27,  28,  28,  29,  30,  30,  31,  32,  32,  33,  34,  35,  35,
-   36,  37,  38,  38,  39,  40,  41,  42,  42,  43,  44,  45,  46,  47,  47,  48,
-   49,  50,  51,  52,  53,  54,  55,  56,  56,  57,  58,  59,  60,  61,  62,  63,
-   64,  65,  66,  67,  68,  69,  70,  71,  73,  74,  75,  76,  77,  78,  79,  80,
-   81,  82,  84,  85,  86,  87,  88,  89,  91,  92,  93,  94,  95,  97,  98,  99,
-  100, 102, 103, 104, 105, 107, 108, 109, 111, 112, 113, 115, 116, 117, 119, 120,
-  121, 123, 124, 126, 127, 128, 130, 131, 133, 134, 136, 137, 139, 140, 142, 143,
-  145, 146, 148, 149, 151, 152, 154, 155, 157, 158, 160, 162, 163, 165, 166, 168,
-  170, 171, 173, 175, 176, 178, 180, 181, 183, 185, 186, 188, 190, 192, 193, 195,
-  197, 199, 200, 202, 204, 206, 207, 209, 211, 213, 215, 217, 218, 220, 222, 224,
-  226, 228, 230, 232, 233, 235, 237, 239, 241, 243, 245, 247, 249, 251, 253, 255,
- };
-
 light_config_t g_light_config;
 /* Provide default values for your global config. */
 light_config_t g_light_config_default = {
     .offset_1 = 0,
     .offset_2 = 0.5,
-    .level_min = 5,
-    .level_max = 254,
+    .level_min = 0,
+    .level_max = 255,
     .on_time = 0.0f,
     .off_time = 0.0f,   
     .transition_time = 10.0,
+    .gamma_pow_scale = 1.1,
+    .gamma_pow_value = 2.2,
+    .gamma_log_value = 5,
     .gamma_mode = GAMMA_MODE_LINEAR,
     .dimming_mode = DIMMING_MODE_ADVANCED,
     .dimming_strategy = DIMMING_STRATEGY_MOVE_TO_LEVEL,
     .step_table_size = 30,
 };
-
-
-uint8_t g_inverseLUT[256];
-
 
 // Fitted in normalized space: yScaled = 0.557 * xScaled^(1.018)
 // Fitted polynomial: y = 0.0639 + -0.2980*x + 1.2331*x^2

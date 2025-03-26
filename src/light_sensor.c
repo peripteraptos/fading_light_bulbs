@@ -17,7 +17,6 @@
  #define _EXAMPLE_ADC_UNIT_STR(unit)         #unit
  #define EXAMPLE_ADC_UNIT_STR(unit)          _EXAMPLE_ADC_UNIT_STR(unit)
  #define EXAMPLE_ADC_CONV_MODE               ADC_CONV_SINGLE_UNIT_1
- #define EXAMPLE_ADC_ATTEN                   ADC_ATTEN_DB_12
  #define EXAMPLE_ADC_BIT_WIDTH               SOC_ADC_DIGI_MAX_BITWIDTH
 
  #define EXAMPLE_ADC_OUTPUT_TYPE             ADC_DIGI_OUTPUT_FORMAT_TYPE2
@@ -32,7 +31,8 @@
 
  static adc_channel_t channel[1] = {ADC_CHANNEL_6};
 
- 
+ static volatile bool s_stop_task = false;
+
  static TaskHandle_t s_task_handle;
  static const char *TAG = "LIGHT_SENSOR";
 
@@ -104,7 +104,7 @@
      ESP_ERROR_CHECK(adc_continuous_register_event_callbacks(handle, &cbs, NULL));
      ESP_ERROR_CHECK(adc_continuous_start(handle));
  
-     while (1) {
+     while (!s_stop_task) {
  
          /**
           * This is to show you the way to use the ADC continuous mode driver event callback.
@@ -121,7 +121,7 @@
          uint32_t sum = 0;
          uint32_t count = 0;
 
-         while (1) {
+         while (!s_stop_task) {
              ret = adc_continuous_read(handle, result, EXAMPLE_READ_LEN, &ret_num, 0);
              if (ret == ESP_OK) {
                  for (int i = 0; i < ret_num; i += SOC_ADC_DIGI_RESULT_BYTES) {
@@ -159,21 +159,23 @@
      
      ESP_ERROR_CHECK(adc_continuous_stop(handle));
      ESP_ERROR_CHECK(adc_continuous_deinit(handle));
+     vTaskDelete(NULL);  // Delete itself
  }
 
  void start_light_sensor_task(void)
 {
-    if (s_task_handle != NULL){
-        vTaskDelete(s_task_handle);
-        s_task_handle = NULL;
+    if (s_task_handle == NULL){
+        xTaskCreate(light_sensor_rtos_task, "light_sensor_rtos_task", 8168, NULL, 3, &s_task_handle);
     }
-    xTaskCreate(light_sensor_rtos_task, "light_sensor_rtos_task", 8168, NULL, 3, NULL);
 }
 
  void stop_light_sensor_task(void)
 {
     if (s_task_handle != NULL) {
-        vTaskDelete(s_task_handle);
+        s_stop_task = true;  // Signal the task to stop
+        xTaskNotifyGive(s_task_handle);  // Wake the task if it's waiting for a notification
+        vTaskDelay(100 / portTICK_PERIOD_MS);  // Wait a brief period to ensure task cleanup
         s_task_handle = NULL;
+        s_stop_task = false;
     }
 }

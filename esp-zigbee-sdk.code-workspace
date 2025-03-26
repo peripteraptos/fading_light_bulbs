@@ -58,7 +58,12 @@
 			"math.h": "c",
 			"task.h": "c",
 			"chrono": "c",
-			"stdbool.h": "c"
+			"stdbool.h": "c",
+			"light_helper.h": "c",
+			"esp_log.h": "c",
+			"cstring": "c",
+			"variant": "c",
+			"reent.h": "c"
 		}
 	}
 }

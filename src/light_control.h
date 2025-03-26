@@ -60,6 +60,7 @@ void lights_stop(void);
 
 void lights_init(void);
 
+
 /**
  * @brief Sends a move-to-level with on/off command (common usage).
  */

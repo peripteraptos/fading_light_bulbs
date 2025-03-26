@@ -7,8 +7,8 @@
 #include "argtable3/argtable3.h"
 #include "console_cmd.h"
 #include "app_config.h"
-#include "calibration.h"
 #include "light_control.h"
+#include "light_sensor.h"
 
 static const char *TAG = "CONSOLE_CMD";
 
@@ -117,12 +117,6 @@ static int cmd_set_config(int argc, char **argv)
     return 0;
 }
 
-static int cmd_start_calibration(int argc, char **argv)
-{
-    ESP_LOGI(TAG, "Starting calibration task...");
-    start_calibration();
-    return 0;
-}
 
 static int cmd_save_config(int argc, char **argv)
 {
@@ -136,6 +130,7 @@ static int cmd_reset_config(int argc, char **argv)
     ESP_LOGI(TAG, "Resetting configuration to default values...");
     reset_light_config_to_default();
     lights_init(); // Re-initialize the lights with default settings
+    cmd_get_config(0, NULL);
     return 0;
 }
 
@@ -144,6 +139,21 @@ static int cmd_reload_config(int argc, char **argv)
     ESP_LOGI(TAG, "Reloading configuration from non-volatile storage...");
     load_light_config_from_nvs();
     lights_init(); // Re-initialize the lights with reloaded settings
+    cmd_get_config(0, NULL);
+    return 0;
+}
+
+static int cmd_start_sensor(int argc, char **argv)
+{
+    ESP_LOGI(TAG, "Starting sensor task...");
+    start_light_sensor_task();
+    return 0;
+}
+
+static int cmd_stop_sensor(int argc, char **argv)
+{
+    ESP_LOGI(TAG, "Stopping sensor task...");
+    stop_light_sensor_task();
     return 0;
 }
 void register_console_commands(void)
@@ -167,15 +177,6 @@ void register_console_commands(void)
         .func = &cmd_set_config,
     };
     ESP_ERROR_CHECK(esp_console_cmd_register(&set_cmd));
-
-    // "start_calibration" command
-    const esp_console_cmd_t calib_cmd = {
-        .command = "start_calibration",
-        .help = "Start the calibration task",
-        .hint = NULL,
-        .func = &cmd_start_calibration,
-    };
-    ESP_ERROR_CHECK(esp_console_cmd_register(&calib_cmd));
 
     // "save" command
     const esp_console_cmd_t save_cmd = {
@@ -203,4 +204,23 @@ void register_console_commands(void)
         .func = &cmd_reload_config,
     };
     ESP_ERROR_CHECK(esp_console_cmd_register(&reload_cmd));
+
+
+    // "start_sensor" command
+    const esp_console_cmd_t start_sensor_cmd = {
+        .command = "start_sensor",
+        .help = "Start the light sensor task",
+        .hint = NULL,
+        .func = &cmd_start_sensor,
+    };
+    ESP_ERROR_CHECK(esp_console_cmd_register(&start_sensor_cmd));
+
+    // "stop_sensor" command
+    const esp_console_cmd_t stop_sensor_cmd = {
+        .command = "stop_sensor",
+        .help = "Stop the light sensor task",
+        .hint = NULL,
+        .func = &cmd_stop_sensor,
+    };
+    ESP_ERROR_CHECK(esp_console_cmd_register(&stop_sensor_cmd));
 }
