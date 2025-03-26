@@ -755,6 +755,24 @@
             sendSerialLine("stop_sensor");
             appendToConsole("Sensor turned off.\n");
           });
+
+        document
+          .getElementById("disconnectButton")
+          .addEventListener("click", async () => {
+            if (port && port.writable) {
+              try {
+                await reader.cancel();
+                reader.releaseLock();
+                inputDone.catch(() => {});
+                outputStream.getWriter().close();
+                await outputDone;
+                await port.close();
+                appendToConsole("> Disconnected from serial port.\n");
+              } catch (e) {
+                appendToConsole(`Error: ${e}\n`);
+              }
+            }
+          });
         // document
         //   .getElementById("calibrationButton")
         //   .addEventListener("click", () => {
